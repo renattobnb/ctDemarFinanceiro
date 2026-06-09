@@ -14,6 +14,7 @@ import {
   Loader2,
   MessageCircle,
   Pencil,
+  PlusCircle,
   RefreshCw,
   Save,
   Search,
@@ -77,6 +78,30 @@ const diaVencimentoPadrao = 8;
 
 function dataVencimentoPadrao(mes: number, ano: number) {
   return `${ano}-${String(mes).padStart(2, "0")}-${String(diaVencimentoPadrao).padStart(2, "0")}`;
+}
+
+function ultimoDiaDoMes(mes: number, ano: number) {
+  return new Date(ano, mes, 0).getDate();
+}
+
+function montarDataVencimento(mes: number, ano: number, dia: number) {
+  const diaAjustado = Math.min(dia, ultimoDiaDoMes(mes, ano));
+  return `${ano}-${String(mes).padStart(2, "0")}-${String(diaAjustado).padStart(2, "0")}`;
+}
+
+function proximoMesReferencia() {
+  const hoje = new Date();
+  const proximoMes = hoje.getMonth() + 2;
+
+  if (proximoMes === 13) {
+    return { mes: 1, ano: hoje.getFullYear() + 1 };
+  }
+
+  return { mes: proximoMes, ano: hoje.getFullYear() };
+}
+
+function obterDataBasePagamento(mensalidade: MensalidadeComDetalhes) {
+  return mensalidade.data_pagamento ?? mensalidade.data_vencimento;
 }
 
 export default function PaginaInicial() {
@@ -230,12 +255,8 @@ export default function PaginaInicial() {
   }, [paginaVinculos, vinculosFiltrados]);
 
   const inadimplencias = useMemo<Inadimplencia[]>(() => {
-    const mesAtualReferencia = mesAtual();
-    const anoAtualReferencia = anoAtual();
-    const hoje = dataAtualIso();
-    const vencimentoDoMesAtual = dataVencimentoPadrao(mesAtualReferencia, anoAtualReferencia);
-    const inadimplenciasLancadas: Inadimplencia[] = mensalidades
-      .filter((mensalidade) => mensalidade.status !== "Pago")
+    return mensalidades
+      .filter((mensalidade) => mensalidade.status === "Atrasado")
       .map((mensalidade) => ({
         id: mensalidade.id,
         nome_aluno: mensalidade.alunos?.nome_completo ?? "Aluno nao encontrado",
@@ -245,44 +266,9 @@ export default function PaginaInicial() {
         ano_referencia: mensalidade.ano_referencia,
         valor: Number(mensalidade.valor),
         data_vencimento: mensalidade.data_vencimento,
-        status: mensalidade.status as "Pendente" | "Atrasado"
+        status: "Atrasado"
       }));
-
-    const mensalidadesDoMes = new Set(
-      mensalidades
-        .filter(
-          (mensalidade) =>
-            mensalidade.mes_referencia === mesAtualReferencia && mensalidade.ano_referencia === anoAtualReferencia
-        )
-        .map((mensalidade) => `${mensalidade.aluno_id}-${mensalidade.turma_id}`)
-    );
-
-    const mensalidadesNaoLancadas: Inadimplencia[] = [];
-
-    if (hoje > vencimentoDoMesAtual) {
-      vinculos.forEach((vinculo) => {
-        const aluno = alunos.find((item) => item.id === vinculo.aluno_id);
-        const turma = turmas.find((item) => item.id === vinculo.turma_id);
-
-        if (!aluno || !turma || aluno.status !== "Ativo" || turma.status !== "Ativa") return;
-        if (mensalidadesDoMes.has(`${vinculo.aluno_id}-${vinculo.turma_id}`)) return;
-
-        mensalidadesNaoLancadas.push({
-          id: `nao-lancada-${vinculo.id}`,
-          nome_aluno: aluno.nome_completo,
-          telefone: aluno.telefone,
-          nome_turma: turma.nome,
-          mes_referencia: mesAtualReferencia,
-          ano_referencia: anoAtualReferencia,
-          valor: Number(turma.valor_mensalidade),
-          data_vencimento: vencimentoDoMesAtual,
-          status: "Nao lancada"
-        });
-      });
-    }
-
-    return [...inadimplenciasLancadas, ...mensalidadesNaoLancadas];
-  }, [alunos, mensalidades, turmas, vinculos]);
+  }, [mensalidades]);
 
   const turmaDoAlunoSelecionado = turmas.find((turma) => turma.id === turmaSelecionada);
 
@@ -475,6 +461,119 @@ export default function PaginaInicial() {
     definirSalvando(false);
     if (error) return definirMensagem(`Erro ao lancar mensalidade: ${error.message}`);
     definirMensagem("Mensalidade lancada com sucesso.");
+    carregarDados();
+  }
+
+  async function lancarMensalidadeProximoMesAluno() {
+    if (!alunoSelecionado || !turmaSelecionada || !turmaDoAlunoSelecionado) {
+      definirMensagem("Selecione um aluno e uma turma para lancar o proximo mes.");
+      return;
+    }
+
+    const { mes, ano } = proximoMesReferencia();
+    const ultimaMensalidadePaga = mensalidades
+      .filter(
+        (mensalidade) =>
+          mensalidade.aluno_id === alunoSelecionado &&
+          mensalidade.turma_id === turmaSelecionada &&
+          mensalidade.status === "Pago"
+      )
+      .sort((primeira, segunda) => obterDataBasePagamento(segunda).localeCompare(obterDataBasePagamento(primeira)))[0];
+    const diaVencimento = ultimaMensalidadePaga
+      ? Number(obterDataBasePagamento(ultimaMensalidadePaga).slice(8, 10))
+      : diaVencimentoPadrao;
+    const jaExiste = mensalidades.some(
+      (mensalidade) =>
+        mensalidade.aluno_id === alunoSelecionado &&
+        mensalidade.turma_id === turmaSelecionada &&
+        mensalidade.mes_referencia === mes &&
+        mensalidade.ano_referencia === ano
+    );
+
+    if (jaExiste) {
+      definirMensagem(`A mensalidade de ${meses[mes - 1]}/${ano} ja existe para este aluno e turma.`);
+      return;
+    }
+
+    definirSalvando(true);
+    const { error } = await supabase.from("financeiro").insert({
+      aluno_id: alunoSelecionado,
+      turma_id: turmaSelecionada,
+      mes_referencia: mes,
+      ano_referencia: ano,
+      valor: Number(turmaDoAlunoSelecionado.valor_mensalidade),
+      data_vencimento: montarDataVencimento(mes, ano, diaVencimento),
+      status: "Pendente"
+    });
+    definirSalvando(false);
+
+    if (error) return definirMensagem(`Erro ao lancar proximo mes: ${error.message}`);
+    definirMensagem(`Mensalidade de ${meses[mes - 1]}/${ano} lancada para o aluno selecionado.`);
+    carregarDados();
+  }
+
+  async function lancarMensalidadesProximoMesTodos() {
+    const { mes, ano } = proximoMesReferencia();
+    const confirmou = window.confirm(`Deseja lancar mensalidades de ${meses[mes - 1]}/${ano} para todos os alunos vinculados?`);
+    if (!confirmou) return;
+
+    const mensalidadesExistentes = new Set(
+      mensalidades
+        .filter((mensalidade) => mensalidade.mes_referencia === mes && mensalidade.ano_referencia === ano)
+        .map((mensalidade) => `${mensalidade.aluno_id}-${mensalidade.turma_id}`)
+    );
+
+    const lancamentos = vinculos
+      .map((vinculo) => {
+        const aluno = alunos.find((item) => item.id === vinculo.aluno_id);
+        const turma = turmas.find((item) => item.id === vinculo.turma_id);
+
+        if (!aluno || !turma || aluno.status !== "Ativo" || turma.status !== "Ativa") return null;
+        if (mensalidadesExistentes.has(`${vinculo.aluno_id}-${vinculo.turma_id}`)) return null;
+
+        const ultimaMensalidadePaga = mensalidades
+          .filter(
+            (mensalidade) =>
+              mensalidade.aluno_id === vinculo.aluno_id &&
+              mensalidade.turma_id === vinculo.turma_id &&
+              mensalidade.status === "Pago"
+          )
+          .sort((primeira, segunda) => obterDataBasePagamento(segunda).localeCompare(obterDataBasePagamento(primeira)))[0];
+        const diaVencimento = ultimaMensalidadePaga
+          ? Number(obterDataBasePagamento(ultimaMensalidadePaga).slice(8, 10))
+          : diaVencimentoPadrao;
+
+        return {
+          aluno_id: vinculo.aluno_id,
+          turma_id: vinculo.turma_id,
+          mes_referencia: mes,
+          ano_referencia: ano,
+          valor: Number(turma.valor_mensalidade),
+          data_vencimento: montarDataVencimento(mes, ano, diaVencimento),
+          status: "Pendente"
+        };
+      })
+      .filter((item): item is {
+        aluno_id: string;
+        turma_id: string;
+        mes_referencia: number;
+        ano_referencia: number;
+        valor: number;
+        data_vencimento: string;
+        status: string;
+      } => Boolean(item));
+
+    if (lancamentos.length === 0) {
+      definirMensagem(`Nenhuma mensalidade nova para lancar em ${meses[mes - 1]}/${ano}.`);
+      return;
+    }
+
+    definirSalvando(true);
+    const { error } = await supabase.from("financeiro").insert(lancamentos);
+    definirSalvando(false);
+
+    if (error) return definirMensagem(`Erro ao lancar mensalidades automaticas: ${error.message}`);
+    definirMensagem(`${lancamentos.length} mensalidade(s) de ${meses[mes - 1]}/${ano} lancada(s) com sucesso.`);
     carregarDados();
   }
 
@@ -845,6 +944,29 @@ export default function PaginaInicial() {
                   <input className="campo" type="date" value={dataVencimento} onChange={(e) => definirDataVencimento(e.target.value)} />
                 </Campo>
                 <BotaoSalvar salvando={salvando} texto="Lancar mensalidade" />
+                <div className="rounded-md border border-teal-100 bg-teal-50 p-3">
+                  <p className="mb-3 text-sm font-semibold text-teal-900">Lancamento automatico do proximo mes</p>
+                  <div className="grid gap-2">
+                    <button
+                      type="button"
+                      onClick={lancarMensalidadeProximoMesAluno}
+                      disabled={salvando}
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-destaque bg-white px-3 py-2 text-sm font-semibold text-destaque"
+                    >
+                      <PlusCircle className="h-4 w-4" />
+                      Proximo mes do aluno
+                    </button>
+                    <button
+                      type="button"
+                      onClick={lancarMensalidadesProximoMesTodos}
+                      disabled={salvando}
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-tinta px-3 py-2 text-sm font-semibold text-white"
+                    >
+                      <PlusCircle className="h-4 w-4" />
+                      Proximo mes de todos
+                    </button>
+                  </div>
+                </div>
               </Formulario>
               <PainelLista titulo="Mensalidades">
                 <button onClick={marcarAtrasadas} className="mb-3 inline-flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
@@ -891,8 +1013,7 @@ export default function PaginaInicial() {
           {abaAtiva === "inadimplentes" && (
             <PainelLista titulo="Relatorio de inadimplentes">
               <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                O relatorio mostra mensalidades pendentes/atrasadas e tambem alunos ativos sem mensalidade lancada no
-                mes atual quando o vencimento padrao, dia {diaVencimentoPadrao}, ja passou.
+                O relatorio mostra apenas mensalidades marcadas com status Atrasado.
               </p>
               {inadimplencias.length === 0 && (
                 <p className="rounded-md border border-black/10 bg-slate-50 p-3 text-sm text-slate-600">
