@@ -377,12 +377,32 @@ export default function PaginaInicial() {
           )}
 
           {abaAtiva === "vinculos" && (
-            <Formulario titulo="Vincular aluno a turma" onSubmit={vincularAlunoTurma}>
-              <SelecaoAluno valor={alunoSelecionado} alterar={definirAlunoSelecionado} alunos={alunos} />
-              <SelecaoTurma valor={turmaSelecionada} alterar={definirTurmaSelecionada} turmas={turmas} />
-              <BotaoSalvar salvando={salvando} texto="Vincular" />
-              <p className="text-sm text-slate-600">{vinculos.length} vinculos cadastrados.</p>
-            </Formulario>
+            <div className="grid gap-4 lg:grid-cols-[420px_1fr]">
+              <Formulario titulo="Vincular aluno a turma" onSubmit={vincularAlunoTurma}>
+                <SelecaoAluno valor={alunoSelecionado} alterar={definirAlunoSelecionado} alunos={alunos} />
+                <SelecaoTurma valor={turmaSelecionada} alterar={definirTurmaSelecionada} turmas={turmas} />
+                <BotaoSalvar salvando={salvando} texto="Vincular" />
+              </Formulario>
+              <PainelLista titulo="Vinculos cadastrados">
+                {vinculos.length === 0 && (
+                  <p className="rounded-md border border-black/10 bg-slate-50 p-3 text-sm text-slate-600">
+                    Nenhum vinculo cadastrado.
+                  </p>
+                )}
+                {vinculos.map((vinculo) => {
+                  const aluno = alunos.find((item) => item.id === vinculo.aluno_id);
+                  const turma = turmas.find((item) => item.id === vinculo.turma_id);
+
+                  return (
+                    <Linha
+                      key={vinculo.id}
+                      titulo={aluno?.nome_completo ?? "Aluno nao encontrado"}
+                      detalhe={`${turma?.nome ?? "Turma nao encontrada"} | Vinculado em: ${formatarData(vinculo.created_at.slice(0, 10))}`}
+                    />
+                  );
+                })}
+              </PainelLista>
+            </div>
           )}
 
           {abaAtiva === "mensalidades" && (
