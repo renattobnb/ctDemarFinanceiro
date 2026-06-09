@@ -1,0 +1,19 @@
+{
+  "name": "CTDemar Financeiro",
+  "short_name": "CTDemar",
+  "description": "Controle financeiro de alunos, turmas, mensalidades e inadimplentes.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f7f7f4",
+  "theme_color": "#0f766e",
+  "icons": [
+    {
+      "src": "/icone.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
