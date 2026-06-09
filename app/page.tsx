@@ -6,14 +6,18 @@ import {
   Banknote,
   CalendarPlus,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   GraduationCap,
   LayoutDashboard,
   LinkIcon,
   Loader2,
   MessageCircle,
+  Pencil,
   RefreshCw,
   Save,
   Search,
+  Trash2,
   Users
 } from "lucide-react";
 import { supabase, supabaseConfigurado } from "@/lib/supabase";
@@ -56,12 +60,17 @@ const turmaInicial = {
   status: "Ativa"
 };
 
+const itensPorPagina = 5;
+
 export default function PaginaInicial() {
   const [abaAtiva, definirAbaAtiva] = useState<Aba>("dashboard");
   const [carregando, definirCarregando] = useState(false);
   const [salvando, definirSalvando] = useState(false);
   const [mensagem, definirMensagem] = useState("");
   const [busca, definirBusca] = useState("");
+  const [buscaVinculo, definirBuscaVinculo] = useState("");
+  const [paginaAlunos, definirPaginaAlunos] = useState(1);
+  const [paginaVinculos, definirPaginaVinculos] = useState(1);
   const [alunos, definirAlunos] = useState<Aluno[]>([]);
   const [turmas, definirTurmas] = useState<Turma[]>([]);
   const [vinculos, definirVinculos] = useState<AlunoTurma[]>([]);
@@ -70,6 +79,7 @@ export default function PaginaInicial() {
   const [formTurma, definirFormTurma] = useState(turmaInicial);
   const [alunoSelecionado, definirAlunoSelecionado] = useState("");
   const [turmaSelecionada, definirTurmaSelecionada] = useState("");
+  const [vinculoEmEdicao, definirVinculoEmEdicao] = useState<AlunoTurma | null>(null);
   const [mesReferencia, definirMesReferencia] = useState(mesAtual());
   const [anoReferencia, definirAnoReferencia] = useState(anoAtual());
   const [dataVencimento, definirDataVencimento] = useState(dataAtualIso());
@@ -116,6 +126,14 @@ export default function PaginaInicial() {
     }
   }, []);
 
+  useEffect(() => {
+    definirPaginaAlunos(1);
+  }, [busca]);
+
+  useEffect(() => {
+    definirPaginaVinculos(1);
+  }, [buscaVinculo]);
+
   const resumo = useMemo<ResumoFinanceiro>(() => {
     return mensalidades.reduce(
       (acumulado, mensalidade) => {
@@ -139,6 +157,37 @@ export default function PaginaInicial() {
     if (!termo) return alunos;
     return alunos.filter((aluno) => aluno.nome_completo.toLowerCase().includes(termo));
   }, [alunos, busca]);
+
+  const alunosPaginados = useMemo(() => {
+    const inicio = (paginaAlunos - 1) * itensPorPagina;
+    return alunosFiltrados.slice(inicio, inicio + itensPorPagina);
+  }, [alunosFiltrados, paginaAlunos]);
+
+  const vinculosComDetalhes = useMemo(() => {
+    return vinculos.map((vinculo) => ({
+      vinculo,
+      aluno: alunos.find((item) => item.id === vinculo.aluno_id),
+      turma: turmas.find((item) => item.id === vinculo.turma_id)
+    }));
+  }, [alunos, turmas, vinculos]);
+
+  const vinculosFiltrados = useMemo(() => {
+    const termo = buscaVinculo.trim().toLowerCase();
+    if (!termo) return vinculosComDetalhes;
+
+    return vinculosComDetalhes.filter(({ aluno, turma }) => {
+      return (
+        aluno?.nome_completo.toLowerCase().includes(termo) ||
+        aluno?.telefone?.toLowerCase().includes(termo) ||
+        turma?.nome.toLowerCase().includes(termo)
+      );
+    });
+  }, [buscaVinculo, vinculosComDetalhes]);
+
+  const vinculosPaginados = useMemo(() => {
+    const inicio = (paginaVinculos - 1) * itensPorPagina;
+    return vinculosFiltrados.slice(inicio, inicio + itensPorPagina);
+  }, [paginaVinculos, vinculosFiltrados]);
 
   const mensalidadesInadimplentes = useMemo(() => {
     return mensalidades.filter((mensalidade) => mensalidade.status !== "Pago");
@@ -189,16 +238,53 @@ export default function PaginaInicial() {
     evento.preventDefault();
     definirSalvando(true);
 
-    const { error } = await supabase.from("aluno_turma").insert({
-      aluno_id: alunoSelecionado,
-      turma_id: turmaSelecionada
-    });
+    const resposta = vinculoEmEdicao
+      ? await supabase
+          .from("aluno_turma")
+          .update({
+            aluno_id: alunoSelecionado,
+            turma_id: turmaSelecionada
+          })
+          .eq("id", vinculoEmEdicao.id)
+      : await supabase.from("aluno_turma").insert({
+          aluno_id: alunoSelecionado,
+          turma_id: turmaSelecionada
+        });
 
     definirSalvando(false);
-    if (error) return definirMensagem(`Erro ao criar vinculo: ${error.message}`);
-    definirMensagem("Aluno vinculado a turma com sucesso.");
+    if (resposta.error) return definirMensagem(`Erro ao salvar vinculo: ${resposta.error.message}`);
+    definirMensagem(vinculoEmEdicao ? "Vinculo alterado com sucesso." : "Aluno vinculado a turma com sucesso.");
     definirAlunoSelecionado("");
     definirTurmaSelecionada("");
+    definirVinculoEmEdicao(null);
+    carregarDados();
+  }
+
+  function iniciarEdicaoVinculo(vinculo: AlunoTurma) {
+    definirVinculoEmEdicao(vinculo);
+    definirAlunoSelecionado(vinculo.aluno_id);
+    definirTurmaSelecionada(vinculo.turma_id);
+    definirMensagem("Altere os dados no formulario e salve novamente.");
+  }
+
+  function cancelarEdicaoVinculo() {
+    definirVinculoEmEdicao(null);
+    definirAlunoSelecionado("");
+    definirTurmaSelecionada("");
+    definirMensagem("");
+  }
+
+  async function excluirVinculo(vinculo: AlunoTurma) {
+    const confirmou = window.confirm("Deseja excluir este vinculo?");
+    if (!confirmou) return;
+
+    definirSalvando(true);
+    const { error } = await supabase.from("aluno_turma").delete().eq("id", vinculo.id);
+    definirSalvando(false);
+
+    if (error) return definirMensagem(`Erro ao excluir vinculo: ${error.message}`);
+    if (vinculoEmEdicao?.id === vinculo.id) cancelarEdicaoVinculo();
+    definirMensagem("Vinculo excluido com sucesso.");
     carregarDados();
   }
 
@@ -344,9 +430,20 @@ export default function PaginaInicial() {
                   <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
                   <input className="campo pl-9" placeholder="Buscar aluno" value={busca} onChange={(e) => definirBusca(e.target.value)} />
                 </div>
-                {alunosFiltrados.map((aluno) => (
+                {alunosFiltrados.length === 0 && (
+                  <p className="rounded-md border border-black/10 bg-slate-50 p-3 text-sm text-slate-600">
+                    Nenhum aluno encontrado.
+                  </p>
+                )}
+                {alunosPaginados.map((aluno) => (
                   <Linha key={aluno.id} titulo={aluno.nome_completo} detalhe={`${aluno.telefone ?? "Sem telefone"} | Matricula: ${formatarData(aluno.data_matricula)}`} />
                 ))}
+                <Paginacao
+                  paginaAtual={paginaAlunos}
+                  totalItens={alunosFiltrados.length}
+                  itensPorPagina={itensPorPagina}
+                  alterarPagina={definirPaginaAlunos}
+                />
               </PainelLista>
             </div>
           )}
@@ -378,29 +475,80 @@ export default function PaginaInicial() {
 
           {abaAtiva === "vinculos" && (
             <div className="grid gap-4 lg:grid-cols-[420px_1fr]">
-              <Formulario titulo="Vincular aluno a turma" onSubmit={vincularAlunoTurma}>
+              <Formulario titulo={vinculoEmEdicao ? "Alterar vinculo" : "Vincular aluno a turma"} onSubmit={vincularAlunoTurma}>
                 <SelecaoAluno valor={alunoSelecionado} alterar={definirAlunoSelecionado} alunos={alunos} />
                 <SelecaoTurma valor={turmaSelecionada} alterar={definirTurmaSelecionada} turmas={turmas} />
-                <BotaoSalvar salvando={salvando} texto="Vincular" />
+                <BotaoSalvar salvando={salvando} texto={vinculoEmEdicao ? "Salvar alteracao" : "Vincular"} />
+                {vinculoEmEdicao && (
+                  <button
+                    type="button"
+                    onClick={cancelarEdicaoVinculo}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-slate-700"
+                  >
+                    Cancelar alteracao
+                  </button>
+                )}
               </Formulario>
               <PainelLista titulo="Vinculos cadastrados">
-                {vinculos.length === 0 && (
+                <div className="relative mb-3">
+                  <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                  <input
+                    className="campo pl-9"
+                    placeholder="Buscar por aluno, telefone ou turma"
+                    value={buscaVinculo}
+                    onChange={(e) => definirBuscaVinculo(e.target.value)}
+                  />
+                </div>
+                {vinculosFiltrados.length === 0 && (
                   <p className="rounded-md border border-black/10 bg-slate-50 p-3 text-sm text-slate-600">
-                    Nenhum vinculo cadastrado.
+                    Nenhum vinculo encontrado.
                   </p>
                 )}
-                {vinculos.map((vinculo) => {
-                  const aluno = alunos.find((item) => item.id === vinculo.aluno_id);
-                  const turma = turmas.find((item) => item.id === vinculo.turma_id);
-
+                {vinculosPaginados.map(({ vinculo, aluno, turma }) => {
                   return (
-                    <Linha
+                    <article
                       key={vinculo.id}
-                      titulo={aluno?.nome_completo ?? "Aluno nao encontrado"}
-                      detalhe={`${turma?.nome ?? "Turma nao encontrada"} | Vinculado em: ${formatarData(vinculo.created_at.slice(0, 10))}`}
-                    />
+                      className={`mb-3 rounded-md border p-3 ${
+                        vinculoEmEdicao?.id === vinculo.id
+                          ? "border-destaque bg-teal-50"
+                          : "border-black/10 bg-slate-50"
+                      }`}
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <h3 className="font-semibold">{aluno?.nome_completo ?? "Aluno nao encontrado"}</h3>
+                          <p className="mt-1 text-sm text-slate-600">
+                            {turma?.nome ?? "Turma nao encontrada"} | Vinculado em: {formatarData(vinculo.created_at.slice(0, 10))}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => iniciarEdicaoVinculo(vinculo)}
+                            className="inline-flex items-center justify-center gap-2 rounded-md border border-destaque bg-white px-3 py-2 text-sm font-semibold text-destaque"
+                          >
+                            <Pencil className="h-4 w-4" />
+                            Alterar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => excluirVinculo(vinculo)}
+                            className="inline-flex items-center justify-center gap-2 rounded-md border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Excluir
+                          </button>
+                        </div>
+                      </div>
+                    </article>
                   );
                 })}
+                <Paginacao
+                  paginaAtual={paginaVinculos}
+                  totalItens={vinculosFiltrados.length}
+                  itensPorPagina={itensPorPagina}
+                  alterarPagina={definirPaginaVinculos}
+                />
               </PainelLista>
             </div>
           )}
@@ -534,6 +682,53 @@ function Linha({ titulo, detalhe }: { titulo: string; detalhe: string }) {
       <h3 className="font-semibold">{titulo}</h3>
       <p className="mt-1 text-sm text-slate-600">{detalhe}</p>
     </article>
+  );
+}
+
+function Paginacao({
+  paginaAtual,
+  totalItens,
+  itensPorPagina,
+  alterarPagina
+}: {
+  paginaAtual: number;
+  totalItens: number;
+  itensPorPagina: number;
+  alterarPagina: (pagina: number) => void;
+}) {
+  const totalPaginas = Math.max(1, Math.ceil(totalItens / itensPorPagina));
+  const inicio = totalItens === 0 ? 0 : (paginaAtual - 1) * itensPorPagina + 1;
+  const fim = Math.min(paginaAtual * itensPorPagina, totalItens);
+
+  return (
+    <div className="mt-4 flex flex-col gap-3 border-t border-black/10 pt-3 sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-sm text-slate-600">
+        Mostrando {inicio} a {fim} de {totalItens} registros
+      </p>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => alterarPagina(Math.max(1, paginaAtual - 1))}
+          disabled={paginaAtual === 1}
+          className="inline-flex items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
+        >
+          <ChevronLeft className="h-4 w-4" />
+          Anterior
+        </button>
+        <span className="min-w-16 text-center text-sm font-semibold text-slate-700">
+          {paginaAtual}/{totalPaginas}
+        </span>
+        <button
+          type="button"
+          onClick={() => alterarPagina(Math.min(totalPaginas, paginaAtual + 1))}
+          disabled={paginaAtual === totalPaginas}
+          className="inline-flex items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
+        >
+          Proxima
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
   );
 }
 
