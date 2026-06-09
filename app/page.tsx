@@ -77,6 +77,7 @@ export default function PaginaInicial() {
   const [mensalidades, definirMensalidades] = useState<MensalidadeComDetalhes[]>([]);
   const [formAluno, definirFormAluno] = useState(alunoInicial);
   const [formTurma, definirFormTurma] = useState(turmaInicial);
+  const [alunoEmEdicao, definirAlunoEmEdicao] = useState<Aluno | null>(null);
   const [alunoSelecionado, definirAlunoSelecionado] = useState("");
   const [turmaSelecionada, definirTurmaSelecionada] = useState("");
   const [vinculoEmEdicao, definirVinculoEmEdicao] = useState<AlunoTurma | null>(null);
@@ -199,19 +200,59 @@ export default function PaginaInicial() {
     evento.preventDefault();
     definirSalvando(true);
 
-    const { error } = await supabase.from("alunos").insert({
+    const dadosAluno = {
       nome_completo: formAluno.nome_completo,
       telefone: formAluno.telefone || null,
       data_nascimento: formAluno.data_nascimento || null,
       data_matricula: formAluno.data_matricula,
       status: formAluno.status,
       observacoes: formAluno.observacoes || null
-    });
+    };
+
+    const resposta = alunoEmEdicao
+      ? await supabase.from("alunos").update(dadosAluno).eq("id", alunoEmEdicao.id)
+      : await supabase.from("alunos").insert(dadosAluno);
 
     definirSalvando(false);
-    if (error) return definirMensagem(`Erro ao salvar aluno: ${error.message}`);
-    definirMensagem("Aluno cadastrado com sucesso.");
+    if (resposta.error) return definirMensagem(`Erro ao salvar aluno: ${resposta.error.message}`);
+    definirMensagem(alunoEmEdicao ? "Aluno alterado com sucesso." : "Aluno cadastrado com sucesso.");
     definirFormAluno(alunoInicial);
+    definirAlunoEmEdicao(null);
+    carregarDados();
+  }
+
+  function iniciarEdicaoAluno(aluno: Aluno) {
+    definirAlunoEmEdicao(aluno);
+    definirFormAluno({
+      nome_completo: aluno.nome_completo,
+      telefone: aluno.telefone ?? "",
+      data_nascimento: aluno.data_nascimento ?? "",
+      data_matricula: aluno.data_matricula,
+      status: aluno.status,
+      observacoes: aluno.observacoes ?? ""
+    });
+    definirMensagem("Altere os dados do aluno no formulario e salve novamente.");
+  }
+
+  function cancelarEdicaoAluno() {
+    definirAlunoEmEdicao(null);
+    definirFormAluno(alunoInicial);
+    definirMensagem("");
+  }
+
+  async function excluirAluno(aluno: Aluno) {
+    const confirmou = window.confirm(
+      `Deseja excluir o aluno ${aluno.nome_completo}? Os vinculos e lancamentos financeiros ligados a este aluno tambem podem ser removidos.`
+    );
+    if (!confirmou) return;
+
+    definirSalvando(true);
+    const { error } = await supabase.from("alunos").delete().eq("id", aluno.id);
+    definirSalvando(false);
+
+    if (error) return definirMensagem(`Erro ao excluir aluno: ${error.message}`);
+    if (alunoEmEdicao?.id === aluno.id) cancelarEdicaoAluno();
+    definirMensagem("Aluno excluido com sucesso.");
     carregarDados();
   }
 
@@ -407,7 +448,7 @@ export default function PaginaInicial() {
 
           {abaAtiva === "alunos" && (
             <div className="grid gap-4 lg:grid-cols-[420px_1fr]">
-              <Formulario titulo="Cadastrar aluno" onSubmit={salvarAluno}>
+              <Formulario titulo={alunoEmEdicao ? "Alterar aluno" : "Cadastrar aluno"} onSubmit={salvarAluno}>
                 <Campo rotulo="Nome completo" obrigatorio>
                   <input className="campo" value={formAluno.nome_completo} onChange={(e) => definirFormAluno({ ...formAluno, nome_completo: e.target.value })} required />
                 </Campo>
@@ -423,7 +464,16 @@ export default function PaginaInicial() {
                 <Campo rotulo="Observacoes">
                   <textarea className="campo min-h-24" value={formAluno.observacoes} onChange={(e) => definirFormAluno({ ...formAluno, observacoes: e.target.value })} />
                 </Campo>
-                <BotaoSalvar salvando={salvando} texto="Salvar aluno" />
+                <BotaoSalvar salvando={salvando} texto={alunoEmEdicao ? "Salvar alteracao" : "Salvar aluno"} />
+                {alunoEmEdicao && (
+                  <button
+                    type="button"
+                    onClick={cancelarEdicaoAluno}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-slate-700"
+                  >
+                    Cancelar alteracao
+                  </button>
+                )}
               </Formulario>
               <PainelLista titulo="Alunos cadastrados">
                 <div className="relative mb-3">
@@ -436,7 +486,39 @@ export default function PaginaInicial() {
                   </p>
                 )}
                 {alunosPaginados.map((aluno) => (
-                  <Linha key={aluno.id} titulo={aluno.nome_completo} detalhe={`${aluno.telefone ?? "Sem telefone"} | Matricula: ${formatarData(aluno.data_matricula)}`} />
+                  <article
+                    key={aluno.id}
+                    className={`mb-3 rounded-md border p-3 ${
+                      alunoEmEdicao?.id === aluno.id ? "border-destaque bg-teal-50" : "border-black/10 bg-slate-50"
+                    }`}
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <h3 className="font-semibold">{aluno.nome_completo}</h3>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {aluno.telefone ?? "Sem telefone"} | Matricula: {formatarData(aluno.data_matricula)}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => iniciarEdicaoAluno(aluno)}
+                          className="inline-flex items-center justify-center gap-2 rounded-md border border-destaque bg-white px-3 py-2 text-sm font-semibold text-destaque"
+                        >
+                          <Pencil className="h-4 w-4" />
+                          Alterar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => excluirAluno(aluno)}
+                          className="inline-flex items-center justify-center gap-2 rounded-md border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Excluir
+                        </button>
+                      </div>
+                    </div>
+                  </article>
                 ))}
                 <Paginacao
                   paginaAtual={paginaAlunos}
