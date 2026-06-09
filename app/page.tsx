@@ -8,6 +8,8 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  CircleX,
+  CircleCheck,
   GraduationCap,
   LayoutDashboard,
   LinkIcon,
@@ -18,6 +20,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  XCircle,
   Trash2,
   Users
 } from "lucide-react";
@@ -33,7 +36,7 @@ import {
 } from "@/lib/formatadores";
 import type { Aluno, AlunoTurma, MensalidadeComDetalhes, ResumoFinanceiro, Turma } from "@/lib/tipos";
 
-type Aba = "dashboard" | "alunos" | "turmas" | "vinculos" | "mensalidades" | "inadimplentes";
+type Aba = "dashboard" | "alunos" | "turmas" | "vinculos" | "mensalidades" | "pagas" | "canceladas" | "inadimplentes";
 
 type Inadimplencia = {
   id: string;
@@ -53,6 +56,8 @@ const abas: Array<{ id: Aba; rotulo: string; Icone: typeof LayoutDashboard }> = 
   { id: "turmas", rotulo: "Turmas", Icone: GraduationCap },
   { id: "vinculos", rotulo: "Vinculos", Icone: LinkIcon },
   { id: "mensalidades", rotulo: "Mensalidades", Icone: Banknote },
+  { id: "pagas", rotulo: "Pagas", Icone: CircleCheck },
+  { id: "canceladas", rotulo: "Canceladas", Icone: CircleX },
   { id: "inadimplentes", rotulo: "Inadimplentes", Icone: AlertCircle }
 ];
 
@@ -115,6 +120,8 @@ export default function PaginaInicial() {
   const [paginaTurmas, definirPaginaTurmas] = useState(1);
   const [paginaVinculos, definirPaginaVinculos] = useState(1);
   const [paginaMensalidades, definirPaginaMensalidades] = useState(1);
+  const [paginaPagas, definirPaginaPagas] = useState(1);
+  const [paginaCanceladas, definirPaginaCanceladas] = useState(1);
   const [alunos, definirAlunos] = useState<Aluno[]>([]);
   const [turmas, definirTurmas] = useState<Turma[]>([]);
   const [vinculos, definirVinculos] = useState<AlunoTurma[]>([]);
@@ -223,10 +230,32 @@ export default function PaginaInicial() {
     return turmas.slice(inicio, inicio + itensPorPagina);
   }, [paginaTurmas, turmas]);
 
+  const mensalidadesAtivas = useMemo(() => {
+    return mensalidades.filter((mensalidade) => mensalidade.status !== "Cancelado" && mensalidade.status !== "Pago");
+  }, [mensalidades]);
+
   const mensalidadesPaginadas = useMemo(() => {
     const inicio = (paginaMensalidades - 1) * itensPorPagina;
-    return mensalidades.slice(inicio, inicio + itensPorPagina);
-  }, [mensalidades, paginaMensalidades]);
+    return mensalidadesAtivas.slice(inicio, inicio + itensPorPagina);
+  }, [mensalidadesAtivas, paginaMensalidades]);
+
+  const mensalidadesPagas = useMemo(() => {
+    return mensalidades.filter((mensalidade) => mensalidade.status === "Pago");
+  }, [mensalidades]);
+
+  const mensalidadesPagasPaginadas = useMemo(() => {
+    const inicio = (paginaPagas - 1) * itensPorPagina;
+    return mensalidadesPagas.slice(inicio, inicio + itensPorPagina);
+  }, [mensalidadesPagas, paginaPagas]);
+
+  const mensalidadesCanceladas = useMemo(() => {
+    return mensalidades.filter((mensalidade) => mensalidade.status === "Cancelado");
+  }, [mensalidades]);
+
+  const mensalidadesCanceladasPaginadas = useMemo(() => {
+    const inicio = (paginaCanceladas - 1) * itensPorPagina;
+    return mensalidadesCanceladas.slice(inicio, inicio + itensPorPagina);
+  }, [mensalidadesCanceladas, paginaCanceladas]);
 
   const vinculosComDetalhes = useMemo(() => {
     return vinculos.map((vinculo) => ({
@@ -604,6 +633,28 @@ export default function PaginaInicial() {
     carregarDados();
   }
 
+  async function cancelarMensalidade(mensalidade: MensalidadeComDetalhes) {
+    const confirmou = window.confirm(
+      `Deseja cancelar a mensalidade de ${mensalidade.alunos?.nome_completo ?? "aluno"} referente a ${meses[mensalidade.mes_referencia - 1]}/${mensalidade.ano_referencia}?`
+    );
+    if (!confirmou) return;
+
+    definirSalvando(true);
+    const { error } = await supabase
+      .from("financeiro")
+      .update({
+        status: "Cancelado",
+        data_pagamento: null,
+        forma_pagamento: null
+      })
+      .eq("id", mensalidade.id);
+    definirSalvando(false);
+
+    if (error) return definirMensagem(`Erro ao cancelar mensalidade: ${error.message}`);
+    definirMensagem("Mensalidade cancelada com sucesso.");
+    carregarDados();
+  }
+
   async function marcarAtrasadas() {
     definirSalvando(true);
     const hoje = dataAtualIso();
@@ -611,7 +662,8 @@ export default function PaginaInicial() {
       .from("financeiro")
       .update({ status: "Atrasado" })
       .lt("data_vencimento", hoje)
-      .neq("status", "Pago");
+      .neq("status", "Pago")
+      .neq("status", "Cancelado");
 
     definirSalvando(false);
     if (error) return definirMensagem(`Erro ao atualizar atrasadas: ${error.message}`);
@@ -650,7 +702,7 @@ export default function PaginaInicial() {
           </button>
         </header>
 
-        <nav className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        <nav className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
           {abas.map(({ id, rotulo, Icone }) => (
             <button
               key={id}
@@ -973,7 +1025,7 @@ export default function PaginaInicial() {
                   <CalendarPlus className="h-4 w-4" />
                   Marcar vencidas como atrasadas
                 </button>
-                {mensalidades.length === 0 && (
+                {mensalidadesAtivas.length === 0 && (
                   <p className="rounded-md border border-black/10 bg-slate-50 p-3 text-sm text-slate-600">
                     Nenhuma mensalidade lancada.
                   </p>
@@ -990,10 +1042,19 @@ export default function PaginaInicial() {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-bold">{formatarMoeda(Number(mensalidade.valor))}</span>
                         <Etiqueta status={mensalidade.status} />
-                        {mensalidade.status !== "Pago" && (
+                        {mensalidade.status !== "Pago" && mensalidade.status !== "Cancelado" && (
                           <button onClick={() => registrarPagamento(mensalidade)} className="inline-flex items-center gap-2 rounded-md bg-destaque px-3 py-2 text-sm font-semibold text-white">
                             <CheckCircle2 className="h-4 w-4" />
                             Pago
+                          </button>
+                        )}
+                        {mensalidade.status !== "Cancelado" && (
+                          <button
+                            onClick={() => cancelarMensalidade(mensalidade)}
+                            className="inline-flex items-center gap-2 rounded-md border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700"
+                          >
+                            <XCircle className="h-4 w-4" />
+                            Cancelar
                           </button>
                         )}
                       </div>
@@ -1002,12 +1063,95 @@ export default function PaginaInicial() {
                 ))}
                 <Paginacao
                   paginaAtual={paginaMensalidades}
-                  totalItens={mensalidades.length}
+                  totalItens={mensalidadesAtivas.length}
                   itensPorPagina={itensPorPagina}
                   alterarPagina={definirPaginaMensalidades}
                 />
               </PainelLista>
             </div>
+          )}
+
+          {abaAtiva === "pagas" && (
+            <PainelLista titulo="Mensalidades pagas">
+              {mensalidadesPagas.length === 0 && (
+                <p className="rounded-md border border-black/10 bg-slate-50 p-3 text-sm text-slate-600">
+                  Nenhuma mensalidade paga.
+                </p>
+              )}
+              {mensalidadesPagasPaginadas.map((mensalidade) => {
+                const telefone = numeroWhatsapp(mensalidade.alunos?.telefone ?? null);
+                const texto = encodeURIComponent(
+                  `Ola, ${mensalidade.alunos?.nome_completo ?? "aluno"}. Recebemos o pagamento da mensalidade de ${meses[mensalidade.mes_referencia - 1]}/${mensalidade.ano_referencia} do CTDemar. Turma: ${mensalidade.turmas?.nome ?? "nao informada"}. Valor: ${formatarMoeda(Number(mensalidade.valor))}. Data do pagamento: ${formatarData(mensalidade.data_pagamento)}. Obrigado!`
+                );
+
+                return (
+                  <article key={mensalidade.id} className="mb-3 rounded-md border border-black/10 bg-white p-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <h3 className="font-semibold">{mensalidade.alunos?.nome_completo ?? "Aluno nao encontrado"}</h3>
+                        <p className="text-sm text-slate-600">
+                          {mensalidade.turmas?.nome ?? "Turma nao encontrada"} | {meses[mensalidade.mes_referencia - 1]}/{mensalidade.ano_referencia} | Vence em {formatarData(mensalidade.data_vencimento)}
+                        </p>
+                        <p className="text-sm text-slate-600">Pago em {formatarData(mensalidade.data_pagamento)}</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-bold">{formatarMoeda(Number(mensalidade.valor))}</span>
+                        <Etiqueta status={mensalidade.status} />
+                        <a
+                          href={telefone ? `https://wa.me/55${telefone}?text=${texto}` : "#"}
+                          target="_blank"
+                          className={`inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-white ${
+                            telefone ? "bg-[#128c7e]" : "pointer-events-none bg-slate-300"
+                          }`}
+                          aria-disabled={!telefone}
+                        >
+                          <MessageCircle className="h-4 w-4" />
+                          Enviar recibo
+                        </a>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+              <Paginacao
+                paginaAtual={paginaPagas}
+                totalItens={mensalidadesPagas.length}
+                itensPorPagina={itensPorPagina}
+                alterarPagina={definirPaginaPagas}
+              />
+            </PainelLista>
+          )}
+
+          {abaAtiva === "canceladas" && (
+            <PainelLista titulo="Mensalidades canceladas">
+              {mensalidadesCanceladas.length === 0 && (
+                <p className="rounded-md border border-black/10 bg-slate-50 p-3 text-sm text-slate-600">
+                  Nenhuma mensalidade cancelada.
+                </p>
+              )}
+              {mensalidadesCanceladasPaginadas.map((mensalidade) => (
+                <article key={mensalidade.id} className="mb-3 rounded-md border border-black/10 bg-white p-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="font-semibold">{mensalidade.alunos?.nome_completo ?? "Aluno nao encontrado"}</h3>
+                      <p className="text-sm text-slate-600">
+                        {mensalidade.turmas?.nome ?? "Turma nao encontrada"} | {meses[mensalidade.mes_referencia - 1]}/{mensalidade.ano_referencia} | Vence em {formatarData(mensalidade.data_vencimento)}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-bold">{formatarMoeda(Number(mensalidade.valor))}</span>
+                      <Etiqueta status={mensalidade.status} />
+                    </div>
+                  </div>
+                </article>
+              ))}
+              <Paginacao
+                paginaAtual={paginaCanceladas}
+                totalItens={mensalidadesCanceladas.length}
+                itensPorPagina={itensPorPagina}
+                alterarPagina={definirPaginaCanceladas}
+              />
+            </PainelLista>
           )}
 
           {abaAtiva === "inadimplentes" && (
@@ -1155,7 +1299,7 @@ function CartaoResumo({ rotulo, valor, tom }: { rotulo: string; valor: string; t
 }
 
 function Etiqueta({ status }: { status: string }) {
-  const classe = status === "Pago" ? "bg-teal-100 text-teal-800" : status === "Atrasado" ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800";
+  const classe = status === "Pago" ? "bg-teal-100 text-teal-800" : status === "Atrasado" ? "bg-red-100 text-red-800" : status === "Cancelado" ? "bg-slate-200 text-slate-700" : "bg-amber-100 text-amber-800";
   return <span className={`rounded-full px-3 py-1 text-xs font-bold ${classe}`}>{status}</span>;
 }
 

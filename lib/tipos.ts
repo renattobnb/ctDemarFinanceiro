@@ -1,6 +1,6 @@
 export type StatusAluno = "Ativo" | "Inativo";
 export type StatusTurma = "Ativa" | "Inativa";
-export type StatusFinanceiro = "Pendente" | "Pago" | "Atrasado";
+export type StatusFinanceiro = "Pendente" | "Pago" | "Atrasado" | "Cancelado";
 
 export type Aluno = {
   id: string;
