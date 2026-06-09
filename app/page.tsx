@@ -34,6 +34,18 @@ import type { Aluno, AlunoTurma, MensalidadeComDetalhes, ResumoFinanceiro, Turma
 
 type Aba = "dashboard" | "alunos" | "turmas" | "vinculos" | "mensalidades" | "inadimplentes";
 
+type Inadimplencia = {
+  id: string;
+  nome_aluno: string;
+  telefone: string | null;
+  nome_turma: string;
+  mes_referencia: number;
+  ano_referencia: number;
+  valor: number;
+  data_vencimento: string;
+  status: "Pendente" | "Atrasado" | "Nao lancada";
+};
+
 const abas: Array<{ id: Aba; rotulo: string; Icone: typeof LayoutDashboard }> = [
   { id: "dashboard", rotulo: "Dashboard", Icone: LayoutDashboard },
   { id: "alunos", rotulo: "Alunos", Icone: Users },
@@ -61,6 +73,11 @@ const turmaInicial = {
 };
 
 const itensPorPagina = 5;
+const diaVencimentoPadrao = 8;
+
+function dataVencimentoPadrao(mes: number, ano: number) {
+  return `${ano}-${String(mes).padStart(2, "0")}-${String(diaVencimentoPadrao).padStart(2, "0")}`;
+}
 
 export default function PaginaInicial() {
   const [abaAtiva, definirAbaAtiva] = useState<Aba>("dashboard");
@@ -70,7 +87,9 @@ export default function PaginaInicial() {
   const [busca, definirBusca] = useState("");
   const [buscaVinculo, definirBuscaVinculo] = useState("");
   const [paginaAlunos, definirPaginaAlunos] = useState(1);
+  const [paginaTurmas, definirPaginaTurmas] = useState(1);
   const [paginaVinculos, definirPaginaVinculos] = useState(1);
+  const [paginaMensalidades, definirPaginaMensalidades] = useState(1);
   const [alunos, definirAlunos] = useState<Aluno[]>([]);
   const [turmas, definirTurmas] = useState<Turma[]>([]);
   const [vinculos, definirVinculos] = useState<AlunoTurma[]>([]);
@@ -78,12 +97,13 @@ export default function PaginaInicial() {
   const [formAluno, definirFormAluno] = useState(alunoInicial);
   const [formTurma, definirFormTurma] = useState(turmaInicial);
   const [alunoEmEdicao, definirAlunoEmEdicao] = useState<Aluno | null>(null);
+  const [turmaEmEdicao, definirTurmaEmEdicao] = useState<Turma | null>(null);
   const [alunoSelecionado, definirAlunoSelecionado] = useState("");
   const [turmaSelecionada, definirTurmaSelecionada] = useState("");
   const [vinculoEmEdicao, definirVinculoEmEdicao] = useState<AlunoTurma | null>(null);
   const [mesReferencia, definirMesReferencia] = useState(mesAtual());
   const [anoReferencia, definirAnoReferencia] = useState(anoAtual());
-  const [dataVencimento, definirDataVencimento] = useState(dataAtualIso());
+  const [dataVencimento, definirDataVencimento] = useState(dataVencimentoPadrao(mesAtual(), anoAtual()));
 
   async function carregarDados() {
     if (!supabaseConfigurado) return;
@@ -136,9 +156,18 @@ export default function PaginaInicial() {
   }, [buscaVinculo]);
 
   const resumo = useMemo<ResumoFinanceiro>(() => {
+    const mesAtualReferencia = mesAtual();
+    const anoAtualReferencia = anoAtual();
+
     return mensalidades.reduce(
       (acumulado, mensalidade) => {
-        if (mensalidade.status === "Pago") acumulado.total_recebido += Number(mensalidade.valor);
+        if (
+          mensalidade.status === "Pago" &&
+          mensalidade.mes_referencia === mesAtualReferencia &&
+          mensalidade.ano_referencia === anoAtualReferencia
+        ) {
+          acumulado.total_recebido += Number(mensalidade.valor);
+        }
         if (mensalidade.status === "Pendente") acumulado.total_pendente += Number(mensalidade.valor);
         if (mensalidade.status === "Atrasado") acumulado.total_atrasado += Number(mensalidade.valor);
         return acumulado;
@@ -163,6 +192,16 @@ export default function PaginaInicial() {
     const inicio = (paginaAlunos - 1) * itensPorPagina;
     return alunosFiltrados.slice(inicio, inicio + itensPorPagina);
   }, [alunosFiltrados, paginaAlunos]);
+
+  const turmasPaginadas = useMemo(() => {
+    const inicio = (paginaTurmas - 1) * itensPorPagina;
+    return turmas.slice(inicio, inicio + itensPorPagina);
+  }, [paginaTurmas, turmas]);
+
+  const mensalidadesPaginadas = useMemo(() => {
+    const inicio = (paginaMensalidades - 1) * itensPorPagina;
+    return mensalidades.slice(inicio, inicio + itensPorPagina);
+  }, [mensalidades, paginaMensalidades]);
 
   const vinculosComDetalhes = useMemo(() => {
     return vinculos.map((vinculo) => ({
@@ -190,9 +229,60 @@ export default function PaginaInicial() {
     return vinculosFiltrados.slice(inicio, inicio + itensPorPagina);
   }, [paginaVinculos, vinculosFiltrados]);
 
-  const mensalidadesInadimplentes = useMemo(() => {
-    return mensalidades.filter((mensalidade) => mensalidade.status !== "Pago");
-  }, [mensalidades]);
+  const inadimplencias = useMemo<Inadimplencia[]>(() => {
+    const mesAtualReferencia = mesAtual();
+    const anoAtualReferencia = anoAtual();
+    const hoje = dataAtualIso();
+    const vencimentoDoMesAtual = dataVencimentoPadrao(mesAtualReferencia, anoAtualReferencia);
+    const inadimplenciasLancadas: Inadimplencia[] = mensalidades
+      .filter((mensalidade) => mensalidade.status !== "Pago")
+      .map((mensalidade) => ({
+        id: mensalidade.id,
+        nome_aluno: mensalidade.alunos?.nome_completo ?? "Aluno nao encontrado",
+        telefone: mensalidade.alunos?.telefone ?? null,
+        nome_turma: mensalidade.turmas?.nome ?? "Turma nao encontrada",
+        mes_referencia: mensalidade.mes_referencia,
+        ano_referencia: mensalidade.ano_referencia,
+        valor: Number(mensalidade.valor),
+        data_vencimento: mensalidade.data_vencimento,
+        status: mensalidade.status as "Pendente" | "Atrasado"
+      }));
+
+    const mensalidadesDoMes = new Set(
+      mensalidades
+        .filter(
+          (mensalidade) =>
+            mensalidade.mes_referencia === mesAtualReferencia && mensalidade.ano_referencia === anoAtualReferencia
+        )
+        .map((mensalidade) => `${mensalidade.aluno_id}-${mensalidade.turma_id}`)
+    );
+
+    const mensalidadesNaoLancadas: Inadimplencia[] = [];
+
+    if (hoje > vencimentoDoMesAtual) {
+      vinculos.forEach((vinculo) => {
+        const aluno = alunos.find((item) => item.id === vinculo.aluno_id);
+        const turma = turmas.find((item) => item.id === vinculo.turma_id);
+
+        if (!aluno || !turma || aluno.status !== "Ativo" || turma.status !== "Ativa") return;
+        if (mensalidadesDoMes.has(`${vinculo.aluno_id}-${vinculo.turma_id}`)) return;
+
+        mensalidadesNaoLancadas.push({
+          id: `nao-lancada-${vinculo.id}`,
+          nome_aluno: aluno.nome_completo,
+          telefone: aluno.telefone,
+          nome_turma: turma.nome,
+          mes_referencia: mesAtualReferencia,
+          ano_referencia: anoAtualReferencia,
+          valor: Number(turma.valor_mensalidade),
+          data_vencimento: vencimentoDoMesAtual,
+          status: "Nao lancada"
+        });
+      });
+    }
+
+    return [...inadimplenciasLancadas, ...mensalidadesNaoLancadas];
+  }, [alunos, mensalidades, turmas, vinculos]);
 
   const turmaDoAlunoSelecionado = turmas.find((turma) => turma.id === turmaSelecionada);
 
@@ -260,18 +350,57 @@ export default function PaginaInicial() {
     evento.preventDefault();
     definirSalvando(true);
 
-    const { error } = await supabase.from("turmas").insert({
+    const dadosTurma = {
       nome: formTurma.nome,
       dias_semana: formTurma.dias_semana || null,
       horario: formTurma.horario || null,
       valor_mensalidade: Number(formTurma.valor_mensalidade),
       status: formTurma.status
-    });
+    };
+
+    const resposta = turmaEmEdicao
+      ? await supabase.from("turmas").update(dadosTurma).eq("id", turmaEmEdicao.id)
+      : await supabase.from("turmas").insert(dadosTurma);
 
     definirSalvando(false);
-    if (error) return definirMensagem(`Erro ao salvar turma: ${error.message}`);
-    definirMensagem("Turma cadastrada com sucesso.");
+    if (resposta.error) return definirMensagem(`Erro ao salvar turma: ${resposta.error.message}`);
+    definirMensagem(turmaEmEdicao ? "Turma alterada com sucesso." : "Turma cadastrada com sucesso.");
     definirFormTurma(turmaInicial);
+    definirTurmaEmEdicao(null);
+    carregarDados();
+  }
+
+  function iniciarEdicaoTurma(turma: Turma) {
+    definirTurmaEmEdicao(turma);
+    definirFormTurma({
+      nome: turma.nome,
+      dias_semana: turma.dias_semana ?? "",
+      horario: turma.horario ?? "",
+      valor_mensalidade: String(turma.valor_mensalidade),
+      status: turma.status
+    });
+    definirMensagem("Altere os dados da turma no formulario e salve novamente.");
+  }
+
+  function cancelarEdicaoTurma() {
+    definirTurmaEmEdicao(null);
+    definirFormTurma(turmaInicial);
+    definirMensagem("");
+  }
+
+  async function excluirTurma(turma: Turma) {
+    const confirmou = window.confirm(
+      `Deseja excluir a turma ${turma.nome}? Se houver alunos ou mensalidades vinculados, o banco pode impedir a exclusao.`
+    );
+    if (!confirmou) return;
+
+    definirSalvando(true);
+    const { error } = await supabase.from("turmas").delete().eq("id", turma.id);
+    definirSalvando(false);
+
+    if (error) return definirMensagem(`Erro ao excluir turma: ${error.message}`);
+    if (turmaEmEdicao?.id === turma.id) cancelarEdicaoTurma();
+    definirMensagem("Turma excluida com sucesso.");
     carregarDados();
   }
 
@@ -347,6 +476,16 @@ export default function PaginaInicial() {
     if (error) return definirMensagem(`Erro ao lancar mensalidade: ${error.message}`);
     definirMensagem("Mensalidade lancada com sucesso.");
     carregarDados();
+  }
+
+  function alterarMesReferencia(mes: number) {
+    definirMesReferencia(mes);
+    definirDataVencimento(dataVencimentoPadrao(mes, anoReferencia));
+  }
+
+  function alterarAnoReferencia(ano: number) {
+    definirAnoReferencia(ano);
+    definirDataVencimento(dataVencimentoPadrao(mesReferencia, ano));
   }
 
   async function registrarPagamento(mensalidade: MensalidadeComDetalhes) {
@@ -532,7 +671,7 @@ export default function PaginaInicial() {
 
           {abaAtiva === "turmas" && (
             <div className="grid gap-4 lg:grid-cols-[420px_1fr]">
-              <Formulario titulo="Cadastrar turma" onSubmit={salvarTurma}>
+              <Formulario titulo={turmaEmEdicao ? "Alterar turma" : "Cadastrar turma"} onSubmit={salvarTurma}>
                 <Campo rotulo="Nome da turma" obrigatorio>
                   <input className="campo" value={formTurma.nome} onChange={(e) => definirFormTurma({ ...formTurma, nome: e.target.value })} required />
                 </Campo>
@@ -545,12 +684,64 @@ export default function PaginaInicial() {
                 <Campo rotulo="Valor da mensalidade" obrigatorio>
                   <input className="campo" type="number" min="0" step="0.01" value={formTurma.valor_mensalidade} onChange={(e) => definirFormTurma({ ...formTurma, valor_mensalidade: e.target.value })} required />
                 </Campo>
-                <BotaoSalvar salvando={salvando} texto="Salvar turma" />
+                <BotaoSalvar salvando={salvando} texto={turmaEmEdicao ? "Salvar alteracao" : "Salvar turma"} />
+                {turmaEmEdicao && (
+                  <button
+                    type="button"
+                    onClick={cancelarEdicaoTurma}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-slate-700"
+                  >
+                    Cancelar alteracao
+                  </button>
+                )}
               </Formulario>
               <PainelLista titulo="Turmas cadastradas">
-                {turmas.map((turma) => (
-                  <Linha key={turma.id} titulo={turma.nome} detalhe={`${turma.dias_semana ?? "Dias nao informados"} | ${turma.horario ?? "Horario nao informado"} | ${formatarMoeda(Number(turma.valor_mensalidade))}`} />
+                {turmas.length === 0 && (
+                  <p className="rounded-md border border-black/10 bg-slate-50 p-3 text-sm text-slate-600">
+                    Nenhuma turma cadastrada.
+                  </p>
+                )}
+                {turmasPaginadas.map((turma) => (
+                  <article
+                    key={turma.id}
+                    className={`mb-3 rounded-md border p-3 ${
+                      turmaEmEdicao?.id === turma.id ? "border-destaque bg-teal-50" : "border-black/10 bg-slate-50"
+                    }`}
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <h3 className="font-semibold">{turma.nome}</h3>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {turma.dias_semana ?? "Dias nao informados"} | {turma.horario ?? "Horario nao informado"} | {formatarMoeda(Number(turma.valor_mensalidade))}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => iniciarEdicaoTurma(turma)}
+                          className="inline-flex items-center justify-center gap-2 rounded-md border border-destaque bg-white px-3 py-2 text-sm font-semibold text-destaque"
+                        >
+                          <Pencil className="h-4 w-4" />
+                          Alterar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => excluirTurma(turma)}
+                          className="inline-flex items-center justify-center gap-2 rounded-md border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Excluir
+                        </button>
+                      </div>
+                    </div>
+                  </article>
                 ))}
+                <Paginacao
+                  paginaAtual={paginaTurmas}
+                  totalItens={turmas.length}
+                  itensPorPagina={itensPorPagina}
+                  alterarPagina={definirPaginaTurmas}
+                />
               </PainelLista>
             </div>
           )}
@@ -641,14 +832,14 @@ export default function PaginaInicial() {
                 <SelecaoAluno valor={alunoSelecionado} alterar={definirAlunoSelecionado} alunos={alunos} />
                 <SelecaoTurma valor={turmaSelecionada} alterar={definirTurmaSelecionada} turmas={turmas} />
                 <Campo rotulo="Mes de referencia">
-                  <select className="campo" value={mesReferencia} onChange={(e) => definirMesReferencia(Number(e.target.value))}>
+                  <select className="campo" value={mesReferencia} onChange={(e) => alterarMesReferencia(Number(e.target.value))}>
                     {meses.map((mes, indice) => (
                       <option key={mes} value={indice + 1}>{mes}</option>
                     ))}
                   </select>
                 </Campo>
                 <Campo rotulo="Ano de referencia">
-                  <input className="campo" type="number" value={anoReferencia} onChange={(e) => definirAnoReferencia(Number(e.target.value))} />
+                  <input className="campo" type="number" value={anoReferencia} onChange={(e) => alterarAnoReferencia(Number(e.target.value))} />
                 </Campo>
                 <Campo rotulo="Data de vencimento">
                   <input className="campo" type="date" value={dataVencimento} onChange={(e) => definirDataVencimento(e.target.value)} />
@@ -660,7 +851,12 @@ export default function PaginaInicial() {
                   <CalendarPlus className="h-4 w-4" />
                   Marcar vencidas como atrasadas
                 </button>
-                {mensalidades.map((mensalidade) => (
+                {mensalidades.length === 0 && (
+                  <p className="rounded-md border border-black/10 bg-slate-50 p-3 text-sm text-slate-600">
+                    Nenhuma mensalidade lancada.
+                  </p>
+                )}
+                {mensalidadesPaginadas.map((mensalidade) => (
                   <article key={mensalidade.id} className="mb-3 rounded-md border border-black/10 bg-white p-3">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
@@ -682,23 +878,39 @@ export default function PaginaInicial() {
                     </div>
                   </article>
                 ))}
+                <Paginacao
+                  paginaAtual={paginaMensalidades}
+                  totalItens={mensalidades.length}
+                  itensPorPagina={itensPorPagina}
+                  alterarPagina={definirPaginaMensalidades}
+                />
               </PainelLista>
             </div>
           )}
 
           {abaAtiva === "inadimplentes" && (
             <PainelLista titulo="Relatorio de inadimplentes">
-              {mensalidadesInadimplentes.map((mensalidade) => {
-                const telefone = numeroWhatsapp(mensalidade.alunos?.telefone ?? null);
-                const texto = encodeURIComponent(`Ola, ${mensalidade.alunos?.nome_completo}. Identificamos a mensalidade de ${meses[mensalidade.mes_referencia - 1]}/${mensalidade.ano_referencia} em aberto no CTDemar. Valor: ${formatarMoeda(Number(mensalidade.valor))}.`);
+              <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                O relatorio mostra mensalidades pendentes/atrasadas e tambem alunos ativos sem mensalidade lancada no
+                mes atual quando o vencimento padrao, dia {diaVencimentoPadrao}, ja passou.
+              </p>
+              {inadimplencias.length === 0 && (
+                <p className="rounded-md border border-black/10 bg-slate-50 p-3 text-sm text-slate-600">
+                  Nenhuma inadimplencia encontrada.
+                </p>
+              )}
+              {inadimplencias.map((inadimplencia) => {
+                const telefone = numeroWhatsapp(inadimplencia.telefone);
+                const texto = encodeURIComponent(`Ola, ${inadimplencia.nome_aluno}. Identificamos a mensalidade de ${meses[inadimplencia.mes_referencia - 1]}/${inadimplencia.ano_referencia} em aberto no CTDemar. Valor: ${formatarMoeda(Number(inadimplencia.valor))}.`);
                 return (
-                  <article key={mensalidade.id} className="mb-3 rounded-md border border-red-100 bg-white p-3">
+                  <article key={inadimplencia.id} className="mb-3 rounded-md border border-red-100 bg-white p-3">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
-                        <h3 className="font-semibold">{mensalidade.alunos?.nome_completo ?? "Aluno nao encontrado"}</h3>
+                        <h3 className="font-semibold">{inadimplencia.nome_aluno}</h3>
                         <p className="text-sm text-slate-600">
-                          {mensalidade.turmas?.nome} | {formatarMoeda(Number(mensalidade.valor))} | vencimento {formatarData(mensalidade.data_vencimento)}
+                          {inadimplencia.nome_turma} | {meses[inadimplencia.mes_referencia - 1]}/{inadimplencia.ano_referencia} | {formatarMoeda(Number(inadimplencia.valor))} | vencimento {formatarData(inadimplencia.data_vencimento)}
                         </p>
+                        <Etiqueta status={inadimplencia.status} />
                       </div>
                       <a
                         href={telefone ? `https://wa.me/55${telefone}?text=${texto}` : "#"}
@@ -755,15 +967,6 @@ function BotaoSalvar({ salvando, texto }: { salvando: boolean; texto: string }) 
       {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
       {texto}
     </button>
-  );
-}
-
-function Linha({ titulo, detalhe }: { titulo: string; detalhe: string }) {
-  return (
-    <article className="mb-3 rounded-md border border-black/10 bg-slate-50 p-3">
-      <h3 className="font-semibold">{titulo}</h3>
-      <p className="mt-1 text-sm text-slate-600">{detalhe}</p>
-    </article>
   );
 }
 
