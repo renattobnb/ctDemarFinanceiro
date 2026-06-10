@@ -116,6 +116,9 @@ export default function PaginaInicial() {
   const [mensagem, definirMensagem] = useState("");
   const [busca, definirBusca] = useState("");
   const [buscaVinculo, definirBuscaVinculo] = useState("");
+  const [buscaMensalidade, definirBuscaMensalidade] = useState("");
+  const [buscaPagas, definirBuscaPagas] = useState("");
+  const [buscaCanceladas, definirBuscaCanceladas] = useState("");
   const [paginaAlunos, definirPaginaAlunos] = useState(1);
   const [paginaTurmas, definirPaginaTurmas] = useState(1);
   const [paginaVinculos, definirPaginaVinculos] = useState(1);
@@ -133,6 +136,7 @@ export default function PaginaInicial() {
   const [alunoSelecionado, definirAlunoSelecionado] = useState("");
   const [turmaSelecionada, definirTurmaSelecionada] = useState("");
   const [vinculoEmEdicao, definirVinculoEmEdicao] = useState<AlunoTurma | null>(null);
+  const [mensalidadeEmEdicao, definirMensalidadeEmEdicao] = useState<MensalidadeComDetalhes | null>(null);
   const [mesReferencia, definirMesReferencia] = useState(mesAtual());
   const [anoReferencia, definirAnoReferencia] = useState(anoAtual());
   const [dataVencimento, definirDataVencimento] = useState(dataVencimentoPadrao(mesAtual(), anoAtual()));
@@ -187,6 +191,18 @@ export default function PaginaInicial() {
     definirPaginaVinculos(1);
   }, [buscaVinculo]);
 
+  useEffect(() => {
+    definirPaginaMensalidades(1);
+  }, [buscaMensalidade]);
+
+  useEffect(() => {
+    definirPaginaPagas(1);
+  }, [buscaPagas]);
+
+  useEffect(() => {
+    definirPaginaCanceladas(1);
+  }, [buscaCanceladas]);
+
   const resumo = useMemo<ResumoFinanceiro>(() => {
     const mesAtualReferencia = mesAtual();
     const anoAtualReferencia = anoAtual();
@@ -234,28 +250,55 @@ export default function PaginaInicial() {
     return mensalidades.filter((mensalidade) => mensalidade.status !== "Cancelado" && mensalidade.status !== "Pago");
   }, [mensalidades]);
 
+  const mensalidadesFiltradas = useMemo(() => {
+    const termo = buscaMensalidade.trim().toLowerCase();
+    if (!termo) return mensalidadesAtivas;
+
+    return mensalidadesAtivas.filter((mensalidade) => {
+      return mensalidade.alunos?.nome_completo.toLowerCase().includes(termo);
+    });
+  }, [buscaMensalidade, mensalidadesAtivas]);
+
   const mensalidadesPaginadas = useMemo(() => {
     const inicio = (paginaMensalidades - 1) * itensPorPagina;
-    return mensalidadesAtivas.slice(inicio, inicio + itensPorPagina);
-  }, [mensalidadesAtivas, paginaMensalidades]);
+    return mensalidadesFiltradas.slice(inicio, inicio + itensPorPagina);
+  }, [mensalidadesFiltradas, paginaMensalidades]);
 
   const mensalidadesPagas = useMemo(() => {
     return mensalidades.filter((mensalidade) => mensalidade.status === "Pago");
   }, [mensalidades]);
 
+  const mensalidadesPagasFiltradas = useMemo(() => {
+    const termo = buscaPagas.trim().toLowerCase();
+    if (!termo) return mensalidadesPagas;
+
+    return mensalidadesPagas.filter((mensalidade) => {
+      return mensalidade.alunos?.nome_completo.toLowerCase().includes(termo);
+    });
+  }, [buscaPagas, mensalidadesPagas]);
+
   const mensalidadesPagasPaginadas = useMemo(() => {
     const inicio = (paginaPagas - 1) * itensPorPagina;
-    return mensalidadesPagas.slice(inicio, inicio + itensPorPagina);
-  }, [mensalidadesPagas, paginaPagas]);
+    return mensalidadesPagasFiltradas.slice(inicio, inicio + itensPorPagina);
+  }, [mensalidadesPagasFiltradas, paginaPagas]);
 
   const mensalidadesCanceladas = useMemo(() => {
     return mensalidades.filter((mensalidade) => mensalidade.status === "Cancelado");
   }, [mensalidades]);
 
+  const mensalidadesCanceladasFiltradas = useMemo(() => {
+    const termo = buscaCanceladas.trim().toLowerCase();
+    if (!termo) return mensalidadesCanceladas;
+
+    return mensalidadesCanceladas.filter((mensalidade) => {
+      return mensalidade.alunos?.nome_completo.toLowerCase().includes(termo);
+    });
+  }, [buscaCanceladas, mensalidadesCanceladas]);
+
   const mensalidadesCanceladasPaginadas = useMemo(() => {
     const inicio = (paginaCanceladas - 1) * itensPorPagina;
-    return mensalidadesCanceladas.slice(inicio, inicio + itensPorPagina);
-  }, [mensalidadesCanceladas, paginaCanceladas]);
+    return mensalidadesCanceladasFiltradas.slice(inicio, inicio + itensPorPagina);
+  }, [mensalidadesCanceladasFiltradas, paginaCanceladas]);
 
   const vinculosComDetalhes = useMemo(() => {
     return vinculos.map((vinculo) => ({
@@ -477,20 +520,52 @@ export default function PaginaInicial() {
     evento.preventDefault();
     definirSalvando(true);
 
-    const { error } = await supabase.from("financeiro").insert({
+    const dadosMensalidade = {
       aluno_id: alunoSelecionado,
       turma_id: turmaSelecionada,
       mes_referencia: mesReferencia,
       ano_referencia: anoReferencia,
-      valor: Number(turmaDoAlunoSelecionado?.valor_mensalidade ?? 0),
-      data_vencimento: dataVencimento,
-      status: "Pendente"
-    });
+      valor: Number(turmaDoAlunoSelecionado?.valor_mensalidade ?? mensalidadeEmEdicao?.valor ?? 0),
+      data_vencimento: dataVencimento
+    };
+
+    const resposta = mensalidadeEmEdicao
+      ? await supabase.from("financeiro").update(dadosMensalidade).eq("id", mensalidadeEmEdicao.id)
+      : await supabase.from("financeiro").insert({
+          ...dadosMensalidade,
+          status: "Pendente"
+        });
 
     definirSalvando(false);
-    if (error) return definirMensagem(`Erro ao lancar mensalidade: ${error.message}`);
-    definirMensagem("Mensalidade lancada com sucesso.");
+    if (resposta.error) return definirMensagem(`Erro ao salvar mensalidade: ${resposta.error.message}`);
+    definirMensagem(mensalidadeEmEdicao ? "Mensalidade alterada com sucesso." : "Mensalidade lancada com sucesso.");
+    definirMensalidadeEmEdicao(null);
+    definirAlunoSelecionado("");
+    definirTurmaSelecionada("");
+    definirMesReferencia(mesAtual());
+    definirAnoReferencia(anoAtual());
+    definirDataVencimento(dataVencimentoPadrao(mesAtual(), anoAtual()));
     carregarDados();
+  }
+
+  function iniciarEdicaoMensalidade(mensalidade: MensalidadeComDetalhes) {
+    definirMensalidadeEmEdicao(mensalidade);
+    definirAlunoSelecionado(mensalidade.aluno_id);
+    definirTurmaSelecionada(mensalidade.turma_id);
+    definirMesReferencia(mensalidade.mes_referencia);
+    definirAnoReferencia(mensalidade.ano_referencia);
+    definirDataVencimento(mensalidade.data_vencimento);
+    definirMensagem("Altere os dados da mensalidade no formulario e salve novamente.");
+  }
+
+  function cancelarEdicaoMensalidade() {
+    definirMensalidadeEmEdicao(null);
+    definirAlunoSelecionado("");
+    definirTurmaSelecionada("");
+    definirMesReferencia(mesAtual());
+    definirAnoReferencia(anoAtual());
+    definirDataVencimento(dataVencimentoPadrao(mesAtual(), anoAtual()));
+    definirMensagem("");
   }
 
   async function lancarMensalidadeProximoMesAluno() {
@@ -979,7 +1054,7 @@ export default function PaginaInicial() {
 
           {abaAtiva === "mensalidades" && (
             <div className="grid gap-4 lg:grid-cols-[420px_1fr]">
-              <Formulario titulo="Lancar mensalidade" onSubmit={lancarMensalidade}>
+              <Formulario titulo={mensalidadeEmEdicao ? "Alterar mensalidade" : "Lancar mensalidade"} onSubmit={lancarMensalidade}>
                 <SelecaoAluno valor={alunoSelecionado} alterar={definirAlunoSelecionado} alunos={alunos} />
                 <SelecaoTurma valor={turmaSelecionada} alterar={definirTurmaSelecionada} turmas={turmas} />
                 <Campo rotulo="Mes de referencia">
@@ -995,43 +1070,69 @@ export default function PaginaInicial() {
                 <Campo rotulo="Data de vencimento">
                   <input className="campo" type="date" value={dataVencimento} onChange={(e) => definirDataVencimento(e.target.value)} />
                 </Campo>
-                <BotaoSalvar salvando={salvando} texto="Lancar mensalidade" />
-                <div className="rounded-md border border-teal-100 bg-teal-50 p-3">
-                  <p className="mb-3 text-sm font-semibold text-teal-900">Lancamento automatico do proximo mes</p>
-                  <div className="grid gap-2">
-                    <button
-                      type="button"
-                      onClick={lancarMensalidadeProximoMesAluno}
-                      disabled={salvando}
-                      className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-destaque bg-white px-3 py-2 text-sm font-semibold text-destaque"
-                    >
-                      <PlusCircle className="h-4 w-4" />
-                      Proximo mes do aluno
-                    </button>
-                    <button
-                      type="button"
-                      onClick={lancarMensalidadesProximoMesTodos}
-                      disabled={salvando}
-                      className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-tinta px-3 py-2 text-sm font-semibold text-white"
-                    >
-                      <PlusCircle className="h-4 w-4" />
-                      Proximo mes de todos
-                    </button>
+                <BotaoSalvar salvando={salvando} texto={mensalidadeEmEdicao ? "Salvar alteracao" : "Lancar mensalidade"} />
+                {mensalidadeEmEdicao && (
+                  <button
+                    type="button"
+                    onClick={cancelarEdicaoMensalidade}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-slate-700"
+                  >
+                    <XCircle className="h-4 w-4" />
+                    Cancelar alteracao
+                  </button>
+                )}
+                {!mensalidadeEmEdicao && (
+                  <div className="rounded-md border border-teal-100 bg-teal-50 p-3">
+                    <p className="mb-3 text-sm font-semibold text-teal-900">Lancamento automatico do proximo mes</p>
+                    <div className="grid gap-2">
+                      <button
+                        type="button"
+                        onClick={lancarMensalidadeProximoMesAluno}
+                        disabled={salvando}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-destaque bg-white px-3 py-2 text-sm font-semibold text-destaque"
+                      >
+                        <PlusCircle className="h-4 w-4" />
+                        Proximo mes do aluno
+                      </button>
+                      <button
+                        type="button"
+                        onClick={lancarMensalidadesProximoMesTodos}
+                        disabled={salvando}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-tinta px-3 py-2 text-sm font-semibold text-white"
+                      >
+                        <PlusCircle className="h-4 w-4" />
+                        Proximo mes de todos
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
               </Formulario>
               <PainelLista titulo="Mensalidades">
+                <div className="relative mb-3">
+                  <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                  <input
+                    className="campo pl-9"
+                    placeholder="Buscar por aluno"
+                    value={buscaMensalidade}
+                    onChange={(e) => definirBuscaMensalidade(e.target.value)}
+                  />
+                </div>
                 <button onClick={marcarAtrasadas} className="mb-3 inline-flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
                   <CalendarPlus className="h-4 w-4" />
                   Marcar vencidas como atrasadas
                 </button>
-                {mensalidadesAtivas.length === 0 && (
+                {mensalidadesFiltradas.length === 0 && (
                   <p className="rounded-md border border-black/10 bg-slate-50 p-3 text-sm text-slate-600">
-                    Nenhuma mensalidade lancada.
+                    Nenhuma mensalidade encontrada.
                   </p>
                 )}
                 {mensalidadesPaginadas.map((mensalidade) => (
-                  <article key={mensalidade.id} className="mb-3 rounded-md border border-black/10 bg-white p-3">
+                  <article
+                    key={mensalidade.id}
+                    className={`mb-3 rounded-md border p-3 ${
+                      mensalidadeEmEdicao?.id === mensalidade.id ? "border-destaque bg-teal-50" : "border-black/10 bg-white"
+                    }`}
+                  >
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <h3 className="font-semibold">{mensalidade.alunos?.nome_completo ?? "Aluno nao encontrado"}</h3>
@@ -1042,6 +1143,14 @@ export default function PaginaInicial() {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-bold">{formatarMoeda(Number(mensalidade.valor))}</span>
                         <Etiqueta status={mensalidade.status} />
+                        <button
+                          type="button"
+                          onClick={() => iniciarEdicaoMensalidade(mensalidade)}
+                          className="inline-flex items-center gap-2 rounded-md border border-destaque bg-white px-3 py-2 text-sm font-semibold text-destaque"
+                        >
+                          <Pencil className="h-4 w-4" />
+                          Alterar
+                        </button>
                         {mensalidade.status !== "Pago" && mensalidade.status !== "Cancelado" && (
                           <button onClick={() => registrarPagamento(mensalidade)} className="inline-flex items-center gap-2 rounded-md bg-destaque px-3 py-2 text-sm font-semibold text-white">
                             <CheckCircle2 className="h-4 w-4" />
@@ -1063,7 +1172,7 @@ export default function PaginaInicial() {
                 ))}
                 <Paginacao
                   paginaAtual={paginaMensalidades}
-                  totalItens={mensalidadesAtivas.length}
+                  totalItens={mensalidadesFiltradas.length}
                   itensPorPagina={itensPorPagina}
                   alterarPagina={definirPaginaMensalidades}
                 />
@@ -1073,9 +1182,18 @@ export default function PaginaInicial() {
 
           {abaAtiva === "pagas" && (
             <PainelLista titulo="Mensalidades pagas">
-              {mensalidadesPagas.length === 0 && (
+              <div className="relative mb-3">
+                <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <input
+                  className="campo pl-9"
+                  placeholder="Buscar por aluno"
+                  value={buscaPagas}
+                  onChange={(e) => definirBuscaPagas(e.target.value)}
+                />
+              </div>
+              {mensalidadesPagasFiltradas.length === 0 && (
                 <p className="rounded-md border border-black/10 bg-slate-50 p-3 text-sm text-slate-600">
-                  Nenhuma mensalidade paga.
+                  Nenhuma mensalidade paga encontrada.
                 </p>
               )}
               {mensalidadesPagasPaginadas.map((mensalidade) => {
@@ -1115,7 +1233,7 @@ export default function PaginaInicial() {
               })}
               <Paginacao
                 paginaAtual={paginaPagas}
-                totalItens={mensalidadesPagas.length}
+                totalItens={mensalidadesPagasFiltradas.length}
                 itensPorPagina={itensPorPagina}
                 alterarPagina={definirPaginaPagas}
               />
@@ -1124,9 +1242,18 @@ export default function PaginaInicial() {
 
           {abaAtiva === "canceladas" && (
             <PainelLista titulo="Mensalidades canceladas">
-              {mensalidadesCanceladas.length === 0 && (
+              <div className="relative mb-3">
+                <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <input
+                  className="campo pl-9"
+                  placeholder="Buscar por aluno"
+                  value={buscaCanceladas}
+                  onChange={(e) => definirBuscaCanceladas(e.target.value)}
+                />
+              </div>
+              {mensalidadesCanceladasFiltradas.length === 0 && (
                 <p className="rounded-md border border-black/10 bg-slate-50 p-3 text-sm text-slate-600">
-                  Nenhuma mensalidade cancelada.
+                  Nenhuma mensalidade cancelada encontrada.
                 </p>
               )}
               {mensalidadesCanceladasPaginadas.map((mensalidade) => (
@@ -1147,7 +1274,7 @@ export default function PaginaInicial() {
               ))}
               <Paginacao
                 paginaAtual={paginaCanceladas}
-                totalItens={mensalidadesCanceladas.length}
+                totalItens={mensalidadesCanceladasFiltradas.length}
                 itensPorPagina={itensPorPagina}
                 alterarPagina={definirPaginaCanceladas}
               />
