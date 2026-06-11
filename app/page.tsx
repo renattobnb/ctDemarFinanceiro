@@ -10,6 +10,7 @@ import {
   ChevronRight,
   CircleX,
   CircleCheck,
+  Gift,
   GraduationCap,
   LayoutDashboard,
   LinkIcon,
@@ -34,7 +35,7 @@ import {
   meses,
   numeroWhatsapp
 } from "@/lib/formatadores";
-import type { Aluno, AlunoTurma, MensalidadeComDetalhes, ResumoFinanceiro, Turma } from "@/lib/tipos";
+import type { Aluno, AlunoTurma, CorFaixa, MensalidadeComDetalhes, ResumoFinanceiro, Turma } from "@/lib/tipos";
 
 type Aba = "dashboard" | "alunos" | "turmas" | "vinculos" | "mensalidades" | "pagas" | "canceladas" | "inadimplentes";
 
@@ -66,9 +67,22 @@ const alunoInicial = {
   telefone: "",
   data_nascimento: "",
   data_matricula: dataAtualIso(),
+  cor_faixa: "Branca" as CorFaixa,
   status: "Ativo",
   observacoes: ""
 };
+
+const faixasAlunos: Array<{ valor: CorFaixa; rotulo: string }> = [
+  { valor: "Branca", rotulo: "Branca ⚪" },
+  { valor: "Cinza", rotulo: "Cinza ⚪⚫" },
+  { valor: "Amarela", rotulo: "Amarela 🟡" },
+  { valor: "Laranja", rotulo: "Laranja 🟠" },
+  { valor: "Verde", rotulo: "Verde 🟢" },
+  { valor: "Azul", rotulo: "Azul 🔵" },
+  { valor: "Roxa", rotulo: "Roxa 🟣" },
+  { valor: "Marrom", rotulo: "Marrom 🟤" },
+  { valor: "Preta", rotulo: "Preta ⚫" }
+];
 
 const turmaInicial = {
   nome: "",
@@ -107,6 +121,11 @@ function proximoMesReferencia() {
 
 function obterDataBasePagamento(mensalidade: MensalidadeComDetalhes) {
   return mensalidade.data_pagamento ?? mensalidade.data_vencimento;
+}
+
+function formatarDiaMes(dataIso: string) {
+  const [, mes, dia] = dataIso.split("-");
+  return `${dia}/${mes}`;
 }
 
 export default function PaginaInicial() {
@@ -241,6 +260,19 @@ export default function PaginaInicial() {
     return alunosFiltrados.slice(inicio, inicio + itensPorPagina);
   }, [alunosFiltrados, paginaAlunos]);
 
+  const aniversariantesDoMes = useMemo(() => {
+    const mesAtualReferencia = mesAtual();
+
+    return alunos
+      .filter((aluno) => {
+        if (!aluno.data_nascimento || aluno.status === "Inativo") return false;
+        return Number(aluno.data_nascimento.slice(5, 7)) === mesAtualReferencia;
+      })
+      .sort((primeiro, segundo) => {
+        return Number(primeiro.data_nascimento?.slice(8, 10) ?? 0) - Number(segundo.data_nascimento?.slice(8, 10) ?? 0);
+      });
+  }, [alunos]);
+
   const turmasPaginadas = useMemo(() => {
     const inicio = (paginaTurmas - 1) * itensPorPagina;
     return turmas.slice(inicio, inicio + itensPorPagina);
@@ -353,6 +385,7 @@ export default function PaginaInicial() {
       telefone: formAluno.telefone || null,
       data_nascimento: formAluno.data_nascimento || null,
       data_matricula: formAluno.data_matricula,
+      cor_faixa: formAluno.cor_faixa,
       status: formAluno.status,
       observacoes: formAluno.observacoes || null
     };
@@ -376,6 +409,7 @@ export default function PaginaInicial() {
       telefone: aluno.telefone ?? "",
       data_nascimento: aluno.data_nascimento ?? "",
       data_matricula: aluno.data_matricula,
+      cor_faixa: aluno.cor_faixa ?? "Branca",
       status: aluno.status,
       observacoes: aluno.observacoes ?? ""
     });
@@ -802,12 +836,46 @@ export default function PaginaInicial() {
 
         <section className="mt-5">
           {abaAtiva === "dashboard" && (
-            <div className="grid gap-4 lg:grid-cols-5">
-              <CartaoResumo rotulo="Recebido" valor={formatarMoeda(resumo.total_recebido)} tom="verde" />
-              <CartaoResumo rotulo="Pendente" valor={formatarMoeda(resumo.total_pendente)} tom="amarelo" />
-              <CartaoResumo rotulo="Atrasado" valor={formatarMoeda(resumo.total_atrasado)} tom="vermelho" />
-              <CartaoResumo rotulo="Alunos" valor={String(resumo.quantidade_alunos)} tom="cinza" />
-              <CartaoResumo rotulo="Turmas" valor={String(resumo.quantidade_turmas)} tom="cinza" />
+            <div className="space-y-4">
+              <div className="grid gap-4 lg:grid-cols-5">
+                <CartaoResumo rotulo="Recebido" valor={formatarMoeda(resumo.total_recebido)} tom="verde" />
+                <CartaoResumo rotulo="Pendente" valor={formatarMoeda(resumo.total_pendente)} tom="amarelo" />
+                <CartaoResumo rotulo="Atrasado" valor={formatarMoeda(resumo.total_atrasado)} tom="vermelho" />
+                <CartaoResumo rotulo="Alunos" valor={String(resumo.quantidade_alunos)} tom="cinza" />
+                <CartaoResumo rotulo="Turmas" valor={String(resumo.quantidade_turmas)} tom="cinza" />
+              </div>
+
+              <div className="rounded-lg border border-black/10 bg-white p-4 shadow-suave">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-600">Este mes</p>
+                    <h2 className="text-lg font-bold">Aniversariantes</h2>
+                  </div>
+                  <div className="flex h-10 w-10 items-center justify-center rounded-md bg-teal-50 text-destaque">
+                    <Gift className="h-5 w-5" />
+                  </div>
+                </div>
+
+                {aniversariantesDoMes.length === 0 && (
+                  <p className="rounded-md border border-black/10 bg-slate-50 p-3 text-sm text-slate-600">
+                    Nenhum aniversariante cadastrado para este mes.
+                  </p>
+                )}
+
+                {aniversariantesDoMes.length > 0 && (
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {aniversariantesDoMes.map((aluno) => (
+                      <article key={aluno.id} className="rounded-md border border-black/10 bg-slate-50 p-3">
+                        <h3 className="font-semibold">{aluno.nome_completo}</h3>
+                        <p className="mt-1 text-sm text-slate-600">
+                          Aniversario em {formatarDiaMes(aluno.data_nascimento ?? "")}
+                        </p>
+                        {aluno.telefone && <p className="mt-1 text-sm text-slate-600">{aluno.telefone}</p>}
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -825,6 +893,19 @@ export default function PaginaInicial() {
                 </Campo>
                 <Campo rotulo="Data de matricula" obrigatorio>
                   <input className="campo" type="date" value={formAluno.data_matricula} onChange={(e) => definirFormAluno({ ...formAluno, data_matricula: e.target.value })} required />
+                </Campo>
+                <Campo rotulo="Cor da faixa">
+                  <select
+                    className="campo"
+                    value={formAluno.cor_faixa}
+                    onChange={(e) => definirFormAluno({ ...formAluno, cor_faixa: e.target.value as CorFaixa })}
+                  >
+                    {faixasAlunos.map((faixa) => (
+                      <option key={faixa.valor} value={faixa.valor}>
+                        {faixa.rotulo}
+                      </option>
+                    ))}
+                  </select>
                 </Campo>
                 <Campo rotulo="Observacoes">
                   <textarea className="campo min-h-24" value={formAluno.observacoes} onChange={(e) => definirFormAluno({ ...formAluno, observacoes: e.target.value })} />
@@ -862,6 +943,9 @@ export default function PaginaInicial() {
                         <h3 className="font-semibold">{aluno.nome_completo}</h3>
                         <p className="mt-1 text-sm text-slate-600">
                           {aluno.telefone ?? "Sem telefone"} | Matricula: {formatarData(aluno.data_matricula)}
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-slate-700">
+                          Faixa: {faixasAlunos.find((faixa) => faixa.valor === aluno.cor_faixa)?.rotulo ?? "Branca ⚪"}
                         </p>
                       </div>
                       <div className="flex gap-2">

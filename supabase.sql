@@ -6,11 +6,14 @@ create table if not exists alunos (
   telefone varchar(20),
   data_nascimento date,
   data_matricula date not null,
+  cor_faixa varchar(20) default 'Branca',
   status varchar(20) default 'Ativo',
   observacoes text,
   created_at timestamp default now(),
   updated_at timestamp default now()
 );
+
+alter table alunos add column if not exists cor_faixa varchar(20) default 'Branca';
 
 create table if not exists turmas (
   id uuid primary key default gen_random_uuid(),

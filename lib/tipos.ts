@@ -1,6 +1,7 @@
 export type StatusAluno = "Ativo" | "Inativo";
 export type StatusTurma = "Ativa" | "Inativa";
 export type StatusFinanceiro = "Pendente" | "Pago" | "Atrasado" | "Cancelado";
+export type CorFaixa = "Branca" | "Cinza" | "Amarela" | "Laranja" | "Verde" | "Azul" | "Roxa" | "Marrom" | "Preta";
 
 export type Aluno = {
   id: string;
@@ -8,6 +9,7 @@ export type Aluno = {
   telefone: string | null;
   data_nascimento: string | null;
   data_matricula: string;
+  cor_faixa: CorFaixa;
   status: StatusAluno;
   observacoes: string | null;
   created_at: string;
