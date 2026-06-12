@@ -10,6 +10,7 @@ import {
   ChevronRight,
   CircleX,
   CircleCheck,
+  Copy,
   Gift,
   GraduationCap,
   LayoutDashboard,
@@ -49,6 +50,19 @@ type Inadimplencia = {
   valor: number;
   data_vencimento: string;
   status: "Pendente" | "Atrasado" | "Nao lancada";
+};
+
+type ResumoDashboard = ResumoFinanceiro & {
+  receita_prevista_mes: number;
+  novos_alunos_mes: number;
+  alunos_cancelados_mes: number;
+};
+
+type ReceitaMensal = {
+  mes: number;
+  ano: number;
+  rotulo: string;
+  valor: number;
 };
 
 const abas: Array<{ id: Aba; rotulo: string; Icone: typeof LayoutDashboard }> = [
@@ -126,6 +140,27 @@ function obterDataBasePagamento(mensalidade: MensalidadeComDetalhes) {
 function formatarDiaMes(dataIso: string) {
   const [, mes, dia] = dataIso.split("-");
   return `${dia}/${mes}`;
+}
+
+function adicionarDiasIso(dataIso: string, dias: number) {
+  const data = new Date(`${dataIso}T00:00:00`);
+  data.setDate(data.getDate() + dias);
+  return data.toISOString().slice(0, 10);
+}
+
+function mesesReceitaUltimosSeisMeses() {
+  const hoje = new Date();
+
+  return Array.from({ length: 6 }, (_, indice) => {
+    const data = new Date(hoje.getFullYear(), hoje.getMonth() - (5 - indice), 1);
+    const mes = data.getMonth() + 1;
+    const ano = data.getFullYear();
+    return {
+      mes,
+      ano,
+      rotulo: `${meses[mes - 1].slice(0, 3)}/${ano}`
+    };
+  });
 }
 
 export default function PaginaInicial() {
@@ -222,12 +257,19 @@ export default function PaginaInicial() {
     definirPaginaCanceladas(1);
   }, [buscaCanceladas]);
 
-  const resumo = useMemo<ResumoFinanceiro>(() => {
+  const resumo = useMemo<ResumoDashboard>(() => {
     const mesAtualReferencia = mesAtual();
     const anoAtualReferencia = anoAtual();
 
     return mensalidades.reduce(
       (acumulado, mensalidade) => {
+        if (
+          mensalidade.status !== "Cancelado" &&
+          mensalidade.mes_referencia === mesAtualReferencia &&
+          mensalidade.ano_referencia === anoAtualReferencia
+        ) {
+          acumulado.receita_prevista_mes += Number(mensalidade.valor);
+        }
         if (
           mensalidade.status === "Pago" &&
           mensalidade.mes_referencia === mesAtualReferencia &&
@@ -243,11 +285,46 @@ export default function PaginaInicial() {
         total_recebido: 0,
         total_pendente: 0,
         total_atrasado: 0,
+        receita_prevista_mes: 0,
+        novos_alunos_mes: alunos.filter((aluno) => {
+          return (
+            Number(aluno.data_matricula.slice(5, 7)) === mesAtualReferencia &&
+            Number(aluno.data_matricula.slice(0, 4)) === anoAtualReferencia
+          );
+        }).length,
+        alunos_cancelados_mes: alunos.filter((aluno) => {
+          return (
+            aluno.status === "Inativo" &&
+            Number(aluno.updated_at.slice(5, 7)) === mesAtualReferencia &&
+            Number(aluno.updated_at.slice(0, 4)) === anoAtualReferencia
+          );
+        }).length,
         quantidade_alunos: alunos.length,
         quantidade_turmas: turmas.length
       }
     );
-  }, [alunos.length, mensalidades, turmas.length]);
+  }, [alunos, mensalidades, turmas.length]);
+
+  const receitaUltimosSeisMeses = useMemo<ReceitaMensal[]>(() => {
+    return mesesReceitaUltimosSeisMeses().map((referencia) => {
+      const valor = mensalidades.reduce((total, mensalidade) => {
+        if (
+          mensalidade.status === "Pago" &&
+          mensalidade.mes_referencia === referencia.mes &&
+          mensalidade.ano_referencia === referencia.ano
+        ) {
+          return total + Number(mensalidade.valor);
+        }
+
+        return total;
+      }, 0);
+
+      return {
+        ...referencia,
+        valor
+      };
+    });
+  }, [mensalidades]);
 
   const alunosFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -358,6 +435,15 @@ export default function PaginaInicial() {
     return vinculosFiltrados.slice(inicio, inicio + itensPorPagina);
   }, [paginaVinculos, vinculosFiltrados]);
 
+  const ocupacaoTurmas = useMemo(() => {
+    return turmas
+      .map((turma) => ({
+        turma,
+        quantidade: vinculos.filter((vinculo) => vinculo.turma_id === turma.id).length
+      }))
+      .sort((primeira, segunda) => segunda.quantidade - primeira.quantidade || primeira.turma.nome.localeCompare(segunda.turma.nome));
+  }, [turmas, vinculos]);
+
   const inadimplencias = useMemo<Inadimplencia[]>(() => {
     return mensalidades
       .filter((mensalidade) => mensalidade.status === "Atrasado")
@@ -373,6 +459,92 @@ export default function PaginaInicial() {
         status: "Atrasado"
       }));
   }, [mensalidades]);
+
+  const quantidadeAlunosInadimplentes = useMemo(() => {
+    return new Set(
+      mensalidades
+        .filter((mensalidade) => mensalidade.status === "Atrasado")
+        .map((mensalidade) => mensalidade.aluno_id)
+    ).size;
+  }, [mensalidades]);
+
+  const taxaInadimplencia = useMemo(() => {
+    if (alunos.length === 0) return "0%";
+
+    const percentual = (quantidadeAlunosInadimplentes / alunos.length) * 100;
+    const valorFormatado = Number.isInteger(percentual) ? String(percentual) : percentual.toFixed(1).replace(".", ",");
+    return `${valorFormatado}%`;
+  }, [alunos.length, quantidadeAlunosInadimplentes]);
+
+  const percentualReceitaRecebida = useMemo(() => {
+    if (resumo.receita_prevista_mes === 0) return "0%";
+
+    const percentual = (resumo.total_recebido / resumo.receita_prevista_mes) * 100;
+    const percentualLimitado = Math.min(percentual, 100);
+    const valorFormatado = Number.isInteger(percentualLimitado)
+      ? String(percentualLimitado)
+      : percentualLimitado.toFixed(1).replace(".", ",");
+    return `${valorFormatado}%`;
+  }, [resumo.receita_prevista_mes, resumo.total_recebido]);
+
+  const receitaPerdidaMes = useMemo(() => {
+    const mesAtualReferencia = mesAtual();
+    const anoAtualReferencia = anoAtual();
+    const totalCanceladoMes = mensalidades.reduce((total, mensalidade) => {
+      if (
+        mensalidade.status === "Cancelado" &&
+        mensalidade.mes_referencia === mesAtualReferencia &&
+        mensalidade.ano_referencia === anoAtualReferencia
+      ) {
+        return total + Number(mensalidade.valor);
+      }
+
+      return total;
+    }, 0);
+    const alunosInativos = new Set(alunos.filter((aluno) => aluno.status === "Inativo").map((aluno) => aluno.id));
+    const receitaAlunosInativos = vinculos.reduce((total, vinculo) => {
+      if (!alunosInativos.has(vinculo.aluno_id)) return total;
+
+      const turma = turmas.find((item) => item.id === vinculo.turma_id);
+      return total + Number(turma?.valor_mensalidade ?? 0);
+    }, 0);
+
+    return totalCanceladoMes + receitaAlunosInativos;
+  }, [alunos, mensalidades, turmas, vinculos]);
+
+  const alertasDashboard = useMemo(() => {
+    const hoje = dataAtualIso();
+    const limiteAtraso = adicionarDiasIso(hoje, -15);
+    const amanha = adicionarDiasIso(hoje, 1);
+    const mesDiaAmanha = amanha.slice(5, 10);
+    const mensalidadesVencemHoje = mensalidades.filter((mensalidade) => {
+      return mensalidade.data_vencimento === hoje && mensalidade.status !== "Pago" && mensalidade.status !== "Cancelado";
+    }).length;
+    const alunosAtrasadosMaisDeQuinzeDias = new Set(
+      mensalidades
+        .filter((mensalidade) => {
+          return mensalidade.status === "Atrasado" && mensalidade.data_vencimento < limiteAtraso;
+        })
+        .map((mensalidade) => mensalidade.aluno_id)
+    ).size;
+    const aniversariantesAmanha = alunos.filter((aluno) => {
+      return aluno.status === "Ativo" && aluno.data_nascimento?.slice(5, 10) === mesDiaAmanha;
+    }).length;
+
+    return {
+      mensalidadesVencemHoje,
+      alunosAtrasadosMaisDeQuinzeDias,
+      aniversariantesAmanha
+    };
+  }, [alunos, mensalidades]);
+
+  const textoAlertasDashboard = useMemo(() => {
+    return [
+      `${alertasDashboard.mensalidadesVencemHoje} mensalidade(s) vencem hoje`,
+      `${alertasDashboard.alunosAtrasadosMaisDeQuinzeDias} aluno(s) com pagamento atrasado ha mais de 15 dias`,
+      `${alertasDashboard.aniversariantesAmanha} aniversariante(s) amanha`
+    ].join("\n");
+  }, [alertasDashboard]);
 
   const turmaDoAlunoSelecionado = turmas.find((turma) => turma.id === turmaSelecionada);
 
@@ -837,12 +1009,81 @@ export default function PaginaInicial() {
         <section className="mt-5">
           {abaAtiva === "dashboard" && (
             <div className="space-y-4">
-              <div className="grid gap-4 lg:grid-cols-5">
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
                 <CartaoResumo rotulo="Recebido" valor={formatarMoeda(resumo.total_recebido)} tom="verde" />
+                <CartaoResumo rotulo="Receita prevista" valor={formatarMoeda(resumo.receita_prevista_mes)} tom="azul" />
+                <CartaoResumo rotulo="Receita recebida" valor={percentualReceitaRecebida} tom="verde" />
+                <CartaoResumo rotulo="Receita perdida" valor={formatarMoeda(receitaPerdidaMes)} tom="vermelho" />
                 <CartaoResumo rotulo="Pendente" valor={formatarMoeda(resumo.total_pendente)} tom="amarelo" />
                 <CartaoResumo rotulo="Atrasado" valor={formatarMoeda(resumo.total_atrasado)} tom="vermelho" />
-                <CartaoResumo rotulo="Alunos" valor={String(resumo.quantidade_alunos)} tom="cinza" />
-                <CartaoResumo rotulo="Turmas" valor={String(resumo.quantidade_turmas)} tom="cinza" />
+                <CartaoResumo rotulo="Inadimplentes" valor={String(inadimplencias.length)} tom="vermelho" />
+                <CartaoResumo rotulo="Taxa inadimplencia" valor={taxaInadimplencia} tom="vermelho" />
+                <CartaoResumo rotulo="Novos alunos" valor={String(resumo.novos_alunos_mes)} tom="azul" />
+                <CartaoResumo rotulo="Alunos cancelados" valor={String(resumo.alunos_cancelados_mes)} tom="vermelho" />
+              </div>
+
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 shadow-suave">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-amber-900">Atencao</p>
+                    <h2 className="text-lg font-bold text-amber-950">Alertas</h2>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(textoAlertasDashboard);
+                      definirMensagem("Alertas copiados com sucesso.");
+                    }}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-amber-200 bg-white text-amber-900"
+                    title="Copiar alertas"
+                  >
+                    <Copy className="h-5 w-5" />
+                  </button>
+                </div>
+
+                <div className="space-y-2 rounded-md border border-amber-200 bg-white p-3 text-sm font-semibold text-slate-800">
+                  <p>⚠️ {alertasDashboard.mensalidadesVencemHoje} mensalidade(s) vencem hoje</p>
+                  <p>⚠️ {alertasDashboard.alunosAtrasadosMaisDeQuinzeDias} aluno(s) com pagamento atrasado ha mais de 15 dias</p>
+                  <p>🎂 {alertasDashboard.aniversariantesAmanha} aniversariante(s) amanha</p>
+                </div>
+              </div>
+
+              <GraficoReceita dados={receitaUltimosSeisMeses} />
+
+              <div className="rounded-lg border border-black/10 bg-white p-4 shadow-suave">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-600">Alunos vinculados</p>
+                    <h2 className="text-lg font-bold">Ocupacao das turmas</h2>
+                  </div>
+                  <div className="flex h-10 w-10 items-center justify-center rounded-md bg-sky-50 text-sky-800">
+                    <GraduationCap className="h-5 w-5" />
+                  </div>
+                </div>
+
+                {ocupacaoTurmas.length === 0 && (
+                  <p className="rounded-md border border-black/10 bg-slate-50 p-3 text-sm text-slate-600">
+                    Nenhuma turma cadastrada.
+                  </p>
+                )}
+
+                {ocupacaoTurmas.length > 0 && (
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {ocupacaoTurmas.map(({ turma, quantidade }) => (
+                      <article key={turma.id} className="rounded-md border border-black/10 bg-slate-50 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <h3 className="font-semibold">{turma.nome}</h3>
+                            <p className="mt-1 text-sm text-slate-600">
+                              {turma.dias_semana || "Dias nao informados"} | {turma.horario || "Horario nao informado"}
+                            </p>
+                          </div>
+                          <strong className="text-2xl text-slate-900">{quantidade}</strong>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="rounded-lg border border-black/10 bg-white p-4 shadow-suave">
@@ -907,6 +1148,16 @@ export default function PaginaInicial() {
                     ))}
                   </select>
                 </Campo>
+                <Campo rotulo="Status do aluno">
+                  <select
+                    className="campo"
+                    value={formAluno.status}
+                    onChange={(e) => definirFormAluno({ ...formAluno, status: e.target.value })}
+                  >
+                    <option value="Ativo">Ativo</option>
+                    <option value="Inativo">Cancelado</option>
+                  </select>
+                </Campo>
                 <Campo rotulo="Observacoes">
                   <textarea className="campo min-h-24" value={formAluno.observacoes} onChange={(e) => definirFormAluno({ ...formAluno, observacoes: e.target.value })} />
                 </Campo>
@@ -946,6 +1197,9 @@ export default function PaginaInicial() {
                         </p>
                         <p className="mt-1 text-sm font-semibold text-slate-700">
                           Faixa: {faixasAlunos.find((faixa) => faixa.valor === aluno.cor_faixa)?.rotulo ?? "Branca ⚪"}
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-slate-700">
+                          Status: {aluno.status === "Inativo" ? "Cancelado" : "Ativo"}
                         </p>
                       </div>
                       <div className="flex gap-2">
@@ -1437,6 +1691,88 @@ function PainelLista({ titulo, children }: { titulo: string; children: React.Rea
   );
 }
 
+function GraficoReceita({ dados }: { dados: ReceitaMensal[] }) {
+  const largura = 720;
+  const altura = 260;
+  const margem = { topo: 24, direita: 24, baixo: 46, esquerda: 70 };
+  const larguraGrafico = largura - margem.esquerda - margem.direita;
+  const alturaGrafico = altura - margem.topo - margem.baixo;
+  const maiorValor = Math.max(...dados.map((item) => item.valor), 1);
+  const pontos = dados.map((item, indice) => {
+    const x = margem.esquerda + (larguraGrafico / Math.max(dados.length - 1, 1)) * indice;
+    const y = margem.topo + alturaGrafico - (item.valor / maiorValor) * alturaGrafico;
+    return { ...item, x, y };
+  });
+  const linha = pontos.map((ponto) => `${ponto.x},${ponto.y}`).join(" ");
+  const area = `${margem.esquerda},${margem.topo + alturaGrafico} ${linha} ${margem.esquerda + larguraGrafico},${margem.topo + alturaGrafico}`;
+  const linhasGrade = [0, 0.25, 0.5, 0.75, 1].map((percentual) => {
+    const valor = maiorValor * (1 - percentual);
+    const y = margem.topo + alturaGrafico * percentual;
+    return { y, valor };
+  });
+
+  return (
+    <div className="rounded-lg border border-black/10 bg-white p-4 shadow-suave">
+      <div className="mb-4">
+        <p className="text-sm font-semibold text-slate-600">Ultimos 6 meses</p>
+        <h2 className="text-lg font-bold">Receita recebida</h2>
+      </div>
+
+      <div className="overflow-x-auto">
+        <svg className="min-w-[680px]" viewBox={`0 0 ${largura} ${altura}`} role="img" aria-label="Grafico de receita dos ultimos 6 meses">
+          <defs>
+            <linearGradient id="graficoReceita" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor="#0f766e" stopOpacity="0.22" />
+              <stop offset="100%" stopColor="#0f766e" stopOpacity="0.02" />
+            </linearGradient>
+          </defs>
+
+          {linhasGrade.map((linhaGrade) => (
+            <g key={linhaGrade.y}>
+              <line
+                x1={margem.esquerda}
+                x2={largura - margem.direita}
+                y1={linhaGrade.y}
+                y2={linhaGrade.y}
+                stroke="#e2e8f0"
+                strokeWidth="1"
+              />
+              <text x={12} y={linhaGrade.y + 4} className="fill-slate-500 text-xs">
+                {formatarMoeda(linhaGrade.valor)}
+              </text>
+            </g>
+          ))}
+
+          <polyline points={area} fill="url(#graficoReceita)" stroke="none" />
+          <polyline points={linha} fill="none" stroke="#0f766e" strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" />
+
+          {pontos.map((ponto) => (
+            <g key={`${ponto.mes}-${ponto.ano}`}>
+              <circle cx={ponto.x} cy={ponto.y} r="6" fill="#0f766e" />
+              <circle cx={ponto.x} cy={ponto.y} r="3" fill="#ffffff" />
+              <text x={ponto.x} y={altura - 18} textAnchor="middle" className="fill-slate-600 text-xs font-semibold">
+                {ponto.rotulo}
+              </text>
+              <text x={ponto.x} y={Math.max(14, ponto.y - 12)} textAnchor="middle" className="fill-slate-900 text-xs font-bold">
+                {formatarMoeda(ponto.valor)}
+              </text>
+            </g>
+          ))}
+        </svg>
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {dados.map((item) => (
+          <div key={`${item.mes}-${item.ano}`} className="flex items-center justify-between rounded-md border border-black/10 bg-slate-50 px-3 py-2 text-sm">
+            <span className="font-semibold text-slate-700">{item.rotulo}</span>
+            <span className="font-bold text-slate-900">{formatarMoeda(item.valor)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function BotaoSalvar({ salvando, texto }: { salvando: boolean; texto: string }) {
   return (
     <button disabled={salvando} className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-destaque px-4 py-3 text-sm font-semibold text-white">
@@ -1493,9 +1829,10 @@ function Paginacao({
   );
 }
 
-function CartaoResumo({ rotulo, valor, tom }: { rotulo: string; valor: string; tom: "verde" | "amarelo" | "vermelho" | "cinza" }) {
+function CartaoResumo({ rotulo, valor, tom }: { rotulo: string; valor: string; tom: "verde" | "azul" | "amarelo" | "vermelho" | "cinza" }) {
   const classes = {
     verde: "border-teal-200 bg-teal-50 text-teal-900",
+    azul: "border-sky-200 bg-sky-50 text-sky-900",
     amarelo: "border-amber-200 bg-amber-50 text-amber-900",
     vermelho: "border-red-200 bg-red-50 text-red-900",
     cinza: "border-slate-200 bg-white text-slate-900"
