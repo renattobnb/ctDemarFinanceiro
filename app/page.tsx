@@ -80,7 +80,7 @@ const abas: Array<{ id: Aba; rotulo: string; Icone: typeof LayoutDashboard }> = 
 
 const abasPrincipaisMobile = abas.filter(({ id }) => ["dashboard", "alunos", "turmas"].includes(id));
 const abasFinanceiroMobile = abas.filter(({ id }) =>
-  ["vinculos", "mensalidades", "pagas", "canceladas", "inadimplentes"].includes(id)
+  ["mensalidades", "pagas", "canceladas", "inadimplentes"].includes(id)
 );
 
 const alunoInicial = {
@@ -172,6 +172,7 @@ function mesesReceitaUltimosSeisMeses() {
 
 export default function PaginaInicial() {
   const [abaAtiva, definirAbaAtiva] = useState<Aba>("dashboard");
+  const [menuTurmasAberto, definirMenuTurmasAberto] = useState(false);
   const [menuFinanceiroAberto, definirMenuFinanceiroAberto] = useState(false);
   const [indicadoresExpandidos, definirIndicadoresExpandidos] = useState(false);
   const [acoesRapidasAbertas, definirAcoesRapidasAbertas] = useState(false);
@@ -972,6 +973,7 @@ export default function PaginaInicial() {
 
   function navegarParaAba(aba: Aba) {
     definirAbaAtiva(aba);
+    definirMenuTurmasAberto(false);
     definirMenuFinanceiroAberto(false);
     definirAcoesRapidasAbertas(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1013,9 +1015,18 @@ export default function PaginaInicial() {
           {abasPrincipaisMobile.map(({ id, rotulo, Icone }) => (
             <button
               key={id}
-              onClick={() => navegarParaAba(id)}
+              onClick={() => {
+                if (id === "turmas") {
+                  definirAbaAtiva("turmas");
+                  definirMenuTurmasAberto((aberto) => !aberto);
+                  definirMenuFinanceiroAberto(false);
+                  return;
+                }
+
+                navegarParaAba(id);
+              }}
               className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-md border px-1 py-2 text-xs font-semibold ${
-                abaAtiva === id
+                (id === "turmas" ? ["turmas", "vinculos"].includes(abaAtiva) : abaAtiva === id)
                   ? "border-destaque bg-destaque text-white"
                   : "border-black/10 bg-white text-slate-700"
               }`}
@@ -1026,9 +1037,12 @@ export default function PaginaInicial() {
           ))}
           <button
             type="button"
-            onClick={() => definirMenuFinanceiroAberto((aberto) => !aberto)}
+            onClick={() => {
+              definirMenuFinanceiroAberto((aberto) => !aberto);
+              definirMenuTurmasAberto(false);
+            }}
             className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-md border px-1 py-2 text-xs font-semibold ${
-              !["dashboard", "alunos", "turmas"].includes(abaAtiva)
+              ["mensalidades", "pagas", "canceladas", "inadimplentes"].includes(abaAtiva)
                 ? "border-destaque bg-destaque text-white"
                 : "border-black/10 bg-white text-slate-700"
             }`}
@@ -1037,6 +1051,23 @@ export default function PaginaInicial() {
             Financeiro
           </button>
         </nav>
+
+        {menuTurmasAberto && (
+          <div className="mt-2 rounded-lg border border-black/10 bg-white p-2 shadow-suave sm:hidden">
+            <button
+              type="button"
+              onClick={() => navegarParaAba("vinculos")}
+              className={`inline-flex w-full items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold ${
+                abaAtiva === "vinculos"
+                  ? "border-destaque bg-teal-50 text-destaque"
+                  : "border-black/10 bg-white text-slate-700"
+              }`}
+            >
+              <LinkIcon className="h-4 w-4" />
+              Vinculos
+            </button>
+          </div>
+        )}
 
         {menuFinanceiroAberto && (
           <div className="mt-2 grid grid-cols-2 gap-2 rounded-lg border border-black/10 bg-white p-2 shadow-suave sm:hidden">
