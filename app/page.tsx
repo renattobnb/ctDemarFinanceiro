@@ -6,6 +6,7 @@ import {
   Banknote,
   CalendarPlus,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleX,
@@ -18,6 +19,7 @@ import {
   Loader2,
   MessageCircle,
   Pencil,
+  Plus,
   PlusCircle,
   RefreshCw,
   Save,
@@ -75,6 +77,11 @@ const abas: Array<{ id: Aba; rotulo: string; Icone: typeof LayoutDashboard }> = 
   { id: "canceladas", rotulo: "Canceladas", Icone: CircleX },
   { id: "inadimplentes", rotulo: "Inadimplentes", Icone: AlertCircle }
 ];
+
+const abasPrincipaisMobile = abas.filter(({ id }) => ["dashboard", "alunos", "turmas"].includes(id));
+const abasFinanceiroMobile = abas.filter(({ id }) =>
+  ["vinculos", "mensalidades", "pagas", "canceladas", "inadimplentes"].includes(id)
+);
 
 const alunoInicial = {
   nome_completo: "",
@@ -165,6 +172,9 @@ function mesesReceitaUltimosSeisMeses() {
 
 export default function PaginaInicial() {
   const [abaAtiva, definirAbaAtiva] = useState<Aba>("dashboard");
+  const [menuFinanceiroAberto, definirMenuFinanceiroAberto] = useState(false);
+  const [indicadoresExpandidos, definirIndicadoresExpandidos] = useState(false);
+  const [acoesRapidasAbertas, definirAcoesRapidasAbertas] = useState(false);
   const [carregando, definirCarregando] = useState(false);
   const [salvando, definirSalvando] = useState(false);
   const [mensagem, definirMensagem] = useState("");
@@ -350,6 +360,10 @@ export default function PaginaInicial() {
       });
   }, [alunos]);
 
+  const quantidadeAlunosAtivos = useMemo(() => {
+    return alunos.filter((aluno) => aluno.status === "Ativo").length;
+  }, [alunos]);
+
   const turmasPaginadas = useMemo(() => {
     const inicio = (paginaTurmas - 1) * itensPorPagina;
     return turmas.slice(inicio, inicio + itensPorPagina);
@@ -443,6 +457,10 @@ export default function PaginaInicial() {
       }))
       .sort((primeira, segunda) => segunda.quantidade - primeira.quantidade || primeira.turma.nome.localeCompare(segunda.turma.nome));
   }, [turmas, vinculos]);
+
+  const maiorOcupacaoTurma = useMemo(() => {
+    return Math.max(...ocupacaoTurmas.map(({ quantidade }) => quantidade), 1);
+  }, [ocupacaoTurmas]);
 
   const inadimplencias = useMemo<Inadimplencia[]>(() => {
     return mensalidades
@@ -952,6 +970,13 @@ export default function PaginaInicial() {
     carregarDados();
   }
 
+  function navegarParaAba(aba: Aba) {
+    definirAbaAtiva(aba);
+    definirMenuFinanceiroAberto(false);
+    definirAcoesRapidasAbertas(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   if (!supabaseConfigurado) {
     return (
       <main className="mx-auto flex min-h-screen max-w-3xl flex-col justify-center px-5 py-10">
@@ -967,27 +992,76 @@ export default function PaginaInicial() {
   }
 
   return (
-    <main className="min-h-screen px-3 py-4 sm:px-5 lg:px-8">
+    <main className="min-h-screen px-3 pb-24 pt-4 sm:px-5 sm:py-4 lg:px-8">
       <div className="mx-auto max-w-7xl">
-        <header className="flex flex-col gap-4 rounded-lg border border-black/5 bg-white/85 p-4 shadow-suave backdrop-blur md:flex-row md:items-center md:justify-between">
+        <header className="flex items-center justify-between gap-3 rounded-lg border border-black/5 bg-white/85 p-3 shadow-suave backdrop-blur sm:p-4">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-wide text-destaque">CTDemar Financeiro</p>
-            <h1 className="mt-1 text-2xl font-bold text-tinta sm:text-3xl">Controle de mensalidades</h1>
+            <p className="text-xs font-semibold uppercase tracking-wide text-destaque sm:text-sm">CTDemar Financeiro</p>
+            <h1 className="mt-1 text-xl font-bold text-tinta sm:text-3xl">Controle de mensalidades</h1>
           </div>
           <button
             onClick={carregarDados}
-            className="inline-flex items-center justify-center gap-2 rounded-md bg-tinta px-4 py-2 text-sm font-semibold text-white"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-tinta text-white sm:h-auto sm:w-auto sm:gap-2 sm:px-4 sm:py-2 sm:text-sm sm:font-semibold"
+            title="Atualizar dados"
           >
             {carregando ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Atualizar
+            <span className="hidden sm:inline">Atualizar</span>
           </button>
         </header>
 
-        <nav className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
+        <nav className="mt-3 grid grid-cols-4 gap-2 sm:hidden">
+          {abasPrincipaisMobile.map(({ id, rotulo, Icone }) => (
+            <button
+              key={id}
+              onClick={() => navegarParaAba(id)}
+              className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-md border px-1 py-2 text-xs font-semibold ${
+                abaAtiva === id
+                  ? "border-destaque bg-destaque text-white"
+                  : "border-black/10 bg-white text-slate-700"
+              }`}
+            >
+              <Icone className="h-4 w-4" />
+              {rotulo}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => definirMenuFinanceiroAberto((aberto) => !aberto)}
+            className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-md border px-1 py-2 text-xs font-semibold ${
+              !["dashboard", "alunos", "turmas"].includes(abaAtiva)
+                ? "border-destaque bg-destaque text-white"
+                : "border-black/10 bg-white text-slate-700"
+            }`}
+          >
+            <Banknote className="h-4 w-4" />
+            Financeiro
+          </button>
+        </nav>
+
+        {menuFinanceiroAberto && (
+          <div className="mt-2 grid grid-cols-2 gap-2 rounded-lg border border-black/10 bg-white p-2 shadow-suave sm:hidden">
+            {abasFinanceiroMobile.map(({ id, rotulo, Icone }) => (
+              <button
+                key={id}
+                onClick={() => navegarParaAba(id)}
+                className={`inline-flex items-center justify-center gap-2 rounded-md border px-2 py-2 text-xs font-semibold ${
+                  abaAtiva === id
+                    ? "border-destaque bg-teal-50 text-destaque"
+                    : "border-black/10 bg-white text-slate-700"
+                }`}
+              >
+                <Icone className="h-4 w-4" />
+                {rotulo}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <nav className="mt-4 hidden grid-cols-4 gap-2 sm:grid lg:grid-cols-8">
           {abas.map(({ id, rotulo, Icone }) => (
             <button
               key={id}
-              onClick={() => definirAbaAtiva(id)}
+              onClick={() => navegarParaAba(id)}
               className={`inline-flex items-center justify-center gap-2 rounded-md border px-3 py-3 text-sm font-semibold ${
                 abaAtiva === id
                   ? "border-destaque bg-destaque text-white"
@@ -1009,20 +1083,44 @@ export default function PaginaInicial() {
         <section className="mt-5">
           {abaAtiva === "dashboard" && (
             <div className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+              <div className="rounded-lg border border-black/10 bg-white px-3 py-2 shadow-suave sm:hidden">
+                <div className="grid grid-cols-3 divide-x divide-black/10 text-center">
+                  <div className="px-1">
+                    <p className="text-lg font-bold text-slate-900">{quantidadeAlunosAtivos}</p>
+                    <p className="text-xs text-slate-600">alunos ativos</p>
+                  </div>
+                  <div className="px-1">
+                    <p className="text-lg font-bold text-teal-900">{formatarMoeda(resumo.total_recebido)}</p>
+                    <p className="text-xs text-slate-600">recebidos</p>
+                  </div>
+                  <div className="px-1">
+                    <p className="text-lg font-bold text-red-900">{quantidadeAlunosInadimplentes}</p>
+                    <p className="text-xs text-slate-600">inadimplentes</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 sm:hidden">
+                <CartaoResumo rotulo="Recebido" valor={formatarMoeda(resumo.total_recebido)} tom="verde" />
+                <CartaoResumo rotulo="Receita prevista" valor={formatarMoeda(resumo.receita_prevista_mes)} tom="azul" />
+                <CartaoResumo rotulo="Pendente" valor={formatarMoeda(resumo.total_pendente)} tom="amarelo" />
+                <CartaoResumo rotulo="Inadimplentes" valor={String(quantidadeAlunosInadimplentes)} tom="vermelho" />
+              </div>
+
+              <div className="hidden gap-4 sm:grid sm:grid-cols-2 lg:grid-cols-5">
                 <CartaoResumo rotulo="Recebido" valor={formatarMoeda(resumo.total_recebido)} tom="verde" />
                 <CartaoResumo rotulo="Receita prevista" valor={formatarMoeda(resumo.receita_prevista_mes)} tom="azul" />
                 <CartaoResumo rotulo="Receita recebida" valor={percentualReceitaRecebida} tom="verde" />
                 <CartaoResumo rotulo="Receita perdida" valor={formatarMoeda(receitaPerdidaMes)} tom="vermelho" />
                 <CartaoResumo rotulo="Pendente" valor={formatarMoeda(resumo.total_pendente)} tom="amarelo" />
                 <CartaoResumo rotulo="Atrasado" valor={formatarMoeda(resumo.total_atrasado)} tom="vermelho" />
-                <CartaoResumo rotulo="Inadimplentes" valor={String(inadimplencias.length)} tom="vermelho" />
+                <CartaoResumo rotulo="Inadimplentes" valor={String(quantidadeAlunosInadimplentes)} tom="vermelho" />
                 <CartaoResumo rotulo="Taxa inadimplencia" valor={taxaInadimplencia} tom="vermelho" />
                 <CartaoResumo rotulo="Novos alunos" valor={String(resumo.novos_alunos_mes)} tom="azul" />
                 <CartaoResumo rotulo="Alunos cancelados" valor={String(resumo.alunos_cancelados_mes)} tom="vermelho" />
               </div>
 
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 shadow-suave">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 shadow-suave sm:p-4">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-amber-900">Atencao</p>
@@ -1042,10 +1140,41 @@ export default function PaginaInicial() {
                 </div>
 
                 <div className="space-y-2 rounded-md border border-amber-200 bg-white p-3 text-sm font-semibold text-slate-800">
-                  <p>⚠️ {alertasDashboard.mensalidadesVencemHoje} mensalidade(s) vencem hoje</p>
-                  <p>⚠️ {alertasDashboard.alunosAtrasadosMaisDeQuinzeDias} aluno(s) com pagamento atrasado ha mais de 15 dias</p>
-                  <p>🎂 {alertasDashboard.aniversariantesAmanha} aniversariante(s) amanha</p>
+                  <p className="flex items-start gap-2">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+                    {alertasDashboard.mensalidadesVencemHoje} mensalidade(s) vencem hoje
+                  </p>
+                  <p className="flex items-start gap-2">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-700" />
+                    {alertasDashboard.alunosAtrasadosMaisDeQuinzeDias} aluno(s) com pagamento atrasado ha mais de 15 dias
+                  </p>
+                  <p className="flex items-start gap-2">
+                    <Gift className="mt-0.5 h-4 w-4 shrink-0 text-destaque" />
+                    {alertasDashboard.aniversariantesAmanha} aniversariante(s) amanha
+                  </p>
                 </div>
+              </div>
+
+              <div className="sm:hidden">
+                <button
+                  type="button"
+                  onClick={() => definirIndicadoresExpandidos((expandido) => !expandido)}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
+                >
+                  {indicadoresExpandidos ? "Ver menos indicadores" : "Ver mais indicadores"}
+                  <ChevronDown className={`h-4 w-4 transition-transform ${indicadoresExpandidos ? "rotate-180" : ""}`} />
+                </button>
+
+                {indicadoresExpandidos && (
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <CartaoResumo rotulo="Receita recebida" valor={percentualReceitaRecebida} tom="verde" />
+                    <CartaoResumo rotulo="Receita perdida" valor={formatarMoeda(receitaPerdidaMes)} tom="vermelho" />
+                    <CartaoResumo rotulo="Atrasado" valor={formatarMoeda(resumo.total_atrasado)} tom="vermelho" />
+                    <CartaoResumo rotulo="Taxa inadimplencia" valor={taxaInadimplencia} tom="vermelho" />
+                    <CartaoResumo rotulo="Novos alunos" valor={String(resumo.novos_alunos_mes)} tom="azul" />
+                    <CartaoResumo rotulo="Alunos cancelados" valor={String(resumo.alunos_cancelados_mes)} tom="vermelho" />
+                  </div>
+                )}
               </div>
 
               <GraficoReceita dados={receitaUltimosSeisMeses} />
@@ -1072,14 +1201,18 @@ export default function PaginaInicial() {
                     {ocupacaoTurmas.map(({ turma, quantidade }) => (
                       <article key={turma.id} className="rounded-md border border-black/10 bg-slate-50 p-3">
                         <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <h3 className="font-semibold">{turma.nome}</h3>
-                            <p className="mt-1 text-sm text-slate-600">
-                              {turma.dias_semana || "Dias nao informados"} | {turma.horario || "Horario nao informado"}
-                            </p>
-                          </div>
-                          <strong className="text-2xl text-slate-900">{quantidade}</strong>
+                          <h3 className="font-semibold">{turma.nome}</h3>
+                          <strong className="text-sm text-slate-900">{quantidade} aluno(s)</strong>
                         </div>
+                        <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
+                          <div
+                            className="h-full rounded-full bg-destaque"
+                            style={{ width: `${(quantidade / maiorOcupacaoTurma) * 100}%` }}
+                          />
+                        </div>
+                        <p className="mt-2 text-xs text-slate-600">
+                          {turma.dias_semana || "Dias nao informados"} | {turma.horario || "Horario nao informado"}
+                        </p>
                       </article>
                     ))}
                   </div>
@@ -1658,6 +1791,72 @@ export default function PaginaInicial() {
           )}
         </section>
       </div>
+
+      {abaAtiva === "dashboard" && (
+        <div className="fixed bottom-5 right-4 z-50 sm:hidden">
+          {acoesRapidasAbertas && (
+            <div className="mb-3 w-56 space-y-2 rounded-lg border border-black/10 bg-white p-2 shadow-2xl">
+              <button
+                type="button"
+                onClick={() => {
+                  definirAlunoEmEdicao(null);
+                  definirFormAluno(alunoInicial);
+                  navegarParaAba("alunos");
+                }}
+                className="inline-flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                <Users className="h-4 w-4 text-destaque" />
+                Novo aluno
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  definirTurmaEmEdicao(null);
+                  definirFormTurma(turmaInicial);
+                  navegarParaAba("turmas");
+                }}
+                className="inline-flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                <GraduationCap className="h-4 w-4 text-destaque" />
+                Nova turma
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  definirMensalidadeEmEdicao(null);
+                  navegarParaAba("mensalidades");
+                }}
+                className="inline-flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                <Banknote className="h-4 w-4 text-destaque" />
+                Registrar pagamento
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  definirVinculoEmEdicao(null);
+                  definirAlunoSelecionado("");
+                  definirTurmaSelecionada("");
+                  navegarParaAba("vinculos");
+                }}
+                className="inline-flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                <LinkIcon className="h-4 w-4 text-destaque" />
+                Vincular aluno
+              </button>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => definirAcoesRapidasAbertas((aberto) => !aberto)}
+            className="ml-auto flex h-14 w-14 items-center justify-center rounded-full bg-destaque text-white shadow-2xl"
+            aria-label="Abrir acoes rapidas"
+            aria-expanded={acoesRapidasAbertas}
+          >
+            <Plus className={`h-6 w-6 transition-transform ${acoesRapidasAbertas ? "rotate-45" : ""}`} />
+          </button>
+        </div>
+      )}
     </main>
   );
 }
@@ -1692,6 +1891,7 @@ function PainelLista({ titulo, children }: { titulo: string; children: React.Rea
 }
 
 function GraficoReceita({ dados }: { dados: ReceitaMensal[] }) {
+  const [detalhesVisiveis, definirDetalhesVisiveis] = useState(false);
   const largura = 720;
   const altura = 260;
   const margem = { topo: 24, direita: 24, baixo: 46, esquerda: 70 };
@@ -1712,14 +1912,14 @@ function GraficoReceita({ dados }: { dados: ReceitaMensal[] }) {
   });
 
   return (
-    <div className="rounded-lg border border-black/10 bg-white p-4 shadow-suave">
-      <div className="mb-4">
+    <div className="rounded-lg border border-black/10 bg-white p-3 shadow-suave sm:p-4">
+      <div className="mb-2 sm:mb-4">
         <p className="text-sm font-semibold text-slate-600">Ultimos 6 meses</p>
         <h2 className="text-lg font-bold">Receita recebida</h2>
       </div>
 
-      <div className="overflow-x-auto">
-        <svg className="min-w-[680px]" viewBox={`0 0 ${largura} ${altura}`} role="img" aria-label="Grafico de receita dos ultimos 6 meses">
+      <div className="overflow-hidden sm:overflow-x-auto">
+        <svg className="h-[190px] w-full sm:h-auto sm:min-w-[680px]" viewBox={`0 0 ${largura} ${altura}`} role="img" aria-label="Grafico de receita dos ultimos 6 meses">
           <defs>
             <linearGradient id="graficoReceita" x1="0" x2="0" y1="0" y2="1">
               <stop offset="0%" stopColor="#0f766e" stopOpacity="0.22" />
@@ -1761,14 +1961,25 @@ function GraficoReceita({ dados }: { dados: ReceitaMensal[] }) {
         </svg>
       </div>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        {dados.map((item) => (
-          <div key={`${item.mes}-${item.ano}`} className="flex items-center justify-between rounded-md border border-black/10 bg-slate-50 px-3 py-2 text-sm">
-            <span className="font-semibold text-slate-700">{item.rotulo}</span>
-            <span className="font-bold text-slate-900">{formatarMoeda(item.valor)}</span>
-          </div>
-        ))}
-      </div>
+      <button
+        type="button"
+        onClick={() => definirDetalhesVisiveis((visivel) => !visivel)}
+        className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
+      >
+        {detalhesVisiveis ? "Ocultar detalhes" : "Ver detalhes"}
+        <ChevronDown className={`h-4 w-4 transition-transform ${detalhesVisiveis ? "rotate-180" : ""}`} />
+      </button>
+
+      {detalhesVisiveis && (
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {dados.map((item) => (
+            <div key={`${item.mes}-${item.ano}`} className="flex items-center justify-between rounded-md border border-black/10 bg-slate-50 px-3 py-2 text-sm">
+              <span className="font-semibold text-slate-700">{item.rotulo}</span>
+              <span className="font-bold text-slate-900">{formatarMoeda(item.valor)}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1839,9 +2050,9 @@ function CartaoResumo({ rotulo, valor, tom }: { rotulo: string; valor: string; t
   };
 
   return (
-    <div className={`rounded-lg border p-4 shadow-suave ${classes[tom]}`}>
-      <p className="text-sm font-semibold">{rotulo}</p>
-      <strong className="mt-2 block text-2xl">{valor}</strong>
+    <div className={`min-h-[92px] rounded-lg border p-3 shadow-suave sm:min-h-0 sm:p-4 ${classes[tom]}`}>
+      <p className="text-xs font-semibold sm:text-sm">{rotulo}</p>
+      <strong className="mt-2 block break-words text-xl sm:text-2xl">{valor}</strong>
     </div>
   );
 }
