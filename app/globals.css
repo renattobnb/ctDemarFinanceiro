@@ -24,11 +24,32 @@ body {
   color: #1e2428;
 }
 
+body::selection {
+  background: rgba(15, 118, 110, 0.18);
+}
+
 button,
 input,
 select,
 textarea {
   font: inherit;
+}
+
+button,
+a,
+.cartao-interativo {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a {
+  transition: transform 160ms ease, border-color 160ms ease, background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+button:active,
+a:active,
+.cartao-interativo:active {
+  transform: translateY(1px) scale(0.99);
 }
 
 button:disabled {
@@ -38,17 +59,91 @@ button:disabled {
 
 .campo {
   width: 100%;
-  border-radius: 0.375rem;
+  min-height: 2.65rem;
+  border-radius: 0.5rem;
   border: 1px solid rgba(15, 23, 42, 0.14);
   background: #ffffff;
-  padding: 0.7rem 0.85rem;
+  padding: 0.62rem 0.78rem;
   color: #1e2428;
   outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
 }
 
 .campo:focus {
   border-color: #0f766e;
   box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
+}
+
+.surface-card {
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 14px 34px rgba(30, 36, 40, 0.07);
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: #e8eee9;
+}
+
+.skeleton::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.68), transparent);
+  animation: skeleton-shimmer 1.25s infinite;
+}
+
+@keyframes skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-tab-in {
+  animation: tab-in 180ms ease-out both;
+}
+
+.animate-menu-fab {
+  transform-origin: bottom right;
+  animation: menu-fab 160ms ease-out both;
+}
+
+@keyframes tab-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes menu-fab {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 
 @media (display-mode: standalone) {

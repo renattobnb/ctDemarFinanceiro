@@ -21,10 +21,13 @@ create table if not exists turmas (
   dias_semana varchar(100),
   horario varchar(50),
   valor_mensalidade numeric(10,2) not null,
+  capacidade_alunos int not null default 20 check (capacidade_alunos > 0),
   status varchar(20) default 'Ativa',
   created_at timestamp default now(),
   updated_at timestamp default now()
 );
+
+alter table turmas add column if not exists capacidade_alunos int not null default 20 check (capacidade_alunos > 0);
 
 create table if not exists aluno_turma (
   id uuid primary key default gen_random_uuid(),

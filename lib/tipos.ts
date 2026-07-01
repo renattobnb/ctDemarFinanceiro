@@ -22,6 +22,7 @@ export type Turma = {
   dias_semana: string | null;
   horario: string | null;
   valor_mensalidade: number;
+  capacidade_alunos: number | null;
   status: StatusTurma;
   created_at: string;
   updated_at: string;

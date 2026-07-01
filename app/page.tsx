@@ -26,6 +26,7 @@ import {
   Search,
   XCircle,
   Trash2,
+  TrendingUp,
   Users
 } from "lucide-react";
 import { supabase, supabaseConfigurado } from "@/lib/supabase";
@@ -105,16 +106,18 @@ const faixasAlunos: Array<{ valor: CorFaixa; rotulo: string }> = [
   { valor: "Preta", rotulo: "Preta ⚫" }
 ];
 
+const itensPorPagina = 5;
+const diaVencimentoPadrao = 8;
+const capacidadePadraoTurma = 20;
+
 const turmaInicial = {
   nome: "",
   dias_semana: "",
   horario: "",
   valor_mensalidade: "",
+  capacidade_alunos: String(capacidadePadraoTurma),
   status: "Ativa"
 };
-
-const itensPorPagina = 5;
-const diaVencimentoPadrao = 8;
 
 function dataVencimentoPadrao(mes: number, ano: number) {
   return `${ano}-${String(mes).padStart(2, "0")}-${String(diaVencimentoPadrao).padStart(2, "0")}`;
@@ -176,6 +179,7 @@ export default function PaginaInicial() {
   const [menuFinanceiroAberto, definirMenuFinanceiroAberto] = useState(false);
   const [indicadoresExpandidos, definirIndicadoresExpandidos] = useState(false);
   const [acoesRapidasAbertas, definirAcoesRapidasAbertas] = useState(false);
+  const [acoesRapidasVisiveis, definirAcoesRapidasVisiveis] = useState(false);
   const [carregando, definirCarregando] = useState(false);
   const [salvando, definirSalvando] = useState(false);
   const [mensagem, definirMensagem] = useState("");
@@ -247,6 +251,25 @@ export default function PaginaInicial() {
       navigator.serviceWorker.register("/service-worker.js");
     }
   }, []);
+
+  useEffect(() => {
+    if (abaAtiva !== "dashboard") {
+      definirAcoesRapidasVisiveis(false);
+      definirAcoesRapidasAbertas(false);
+      return;
+    }
+
+    function atualizarVisibilidadeAcoes() {
+      const visivel = window.scrollY > 90;
+      definirAcoesRapidasVisiveis(visivel);
+      if (!visivel) definirAcoesRapidasAbertas(false);
+    }
+
+    atualizarVisibilidadeAcoes();
+    window.addEventListener("scroll", atualizarVisibilidadeAcoes, { passive: true });
+
+    return () => window.removeEventListener("scroll", atualizarVisibilidadeAcoes);
+  }, [abaAtiva]);
 
   useEffect(() => {
     definirPaginaAlunos(1);
@@ -459,10 +482,6 @@ export default function PaginaInicial() {
       .sort((primeira, segunda) => segunda.quantidade - primeira.quantidade || primeira.turma.nome.localeCompare(segunda.turma.nome));
   }, [turmas, vinculos]);
 
-  const maiorOcupacaoTurma = useMemo(() => {
-    return Math.max(...ocupacaoTurmas.map(({ quantidade }) => quantidade), 1);
-  }, [ocupacaoTurmas]);
-
   const inadimplencias = useMemo<Inadimplencia[]>(() => {
     return mensalidades
       .filter((mensalidade) => mensalidade.status === "Atrasado")
@@ -565,6 +584,19 @@ export default function PaginaInicial() {
     ].join("\n");
   }, [alertasDashboard]);
 
+  const totalReceitaPeriodo = useMemo(() => {
+    return receitaUltimosSeisMeses.reduce((total, item) => total + item.valor, 0);
+  }, [receitaUltimosSeisMeses]);
+
+  const resumoContextualDashboard = useMemo(() => {
+    const inadimplenciaTexto =
+      quantidadeAlunosInadimplentes === 0
+        ? "nenhuma inadimplencia"
+        : `${quantidadeAlunosInadimplentes} ${quantidadeAlunosInadimplentes === 1 ? "inadimplente" : "inadimplentes"}`;
+
+    return `Hoje voce possui ${formatarMoeda(resumo.receita_prevista_mes)} previstos, ${quantidadeAlunosAtivos} ${quantidadeAlunosAtivos === 1 ? "aluno ativo" : "alunos ativos"} e ${inadimplenciaTexto}.`;
+  }, [quantidadeAlunosAtivos, quantidadeAlunosInadimplentes, resumo.receita_prevista_mes]);
+
   const turmaDoAlunoSelecionado = turmas.find((turma) => turma.id === turmaSelecionada);
 
   async function salvarAluno(evento: React.FormEvent<HTMLFormElement>) {
@@ -638,6 +670,7 @@ export default function PaginaInicial() {
       dias_semana: formTurma.dias_semana || null,
       horario: formTurma.horario || null,
       valor_mensalidade: Number(formTurma.valor_mensalidade),
+      capacidade_alunos: Number(formTurma.capacidade_alunos || capacidadePadraoTurma),
       status: formTurma.status
     };
 
@@ -660,6 +693,7 @@ export default function PaginaInicial() {
       dias_semana: turma.dias_semana ?? "",
       horario: turma.horario ?? "",
       valor_mensalidade: String(turma.valor_mensalidade),
+      capacidade_alunos: String(turma.capacidade_alunos ?? capacidadePadraoTurma),
       status: turma.status
     });
     definirMensagem("Altere os dados da turma no formulario e salve novamente.");
@@ -994,24 +1028,25 @@ export default function PaginaInicial() {
   }
 
   return (
-    <main className="min-h-screen px-3 pb-24 pt-4 sm:px-5 sm:py-4 lg:px-8">
+    <main className="min-h-screen overflow-x-hidden px-3 pb-32 pt-3 sm:px-5 sm:py-4 lg:px-8">
       <div className="mx-auto max-w-7xl">
-        <header className="flex items-center justify-between gap-3 rounded-lg border border-black/5 bg-white/85 p-3 shadow-suave backdrop-blur sm:p-4">
+        <header className="surface-card flex items-center justify-between gap-3 px-3 py-2.5 backdrop-blur sm:p-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-destaque sm:text-sm">CTDemar Financeiro</p>
-            <h1 className="mt-1 text-xl font-bold text-tinta sm:text-3xl">Controle de mensalidades</h1>
+            <p className="text-[0.68rem] font-bold uppercase text-destaque sm:text-sm">CTDEMAR</p>
+            <h1 className="text-lg font-extrabold leading-tight text-tinta sm:mt-1 sm:text-3xl">Controle Financeiro</h1>
           </div>
           <button
             onClick={carregarDados}
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-tinta text-white sm:h-auto sm:w-auto sm:gap-2 sm:px-4 sm:py-2 sm:text-sm sm:font-semibold"
+            className="group inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-tinta text-white shadow-sm hover:bg-destaque active:scale-95 focus:outline-none focus:ring-2 focus:ring-destaque focus:ring-offset-2 sm:h-auto sm:w-auto sm:gap-2 sm:px-4 sm:py-2 sm:text-sm sm:font-semibold"
             title="Atualizar dados"
+            aria-label="Atualizar dados"
           >
-            {carregando ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            {carregando ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4 transition-transform duration-300 group-hover:rotate-180" />}
             <span className="hidden sm:inline">Atualizar</span>
           </button>
         </header>
 
-        <nav className="mt-3 grid grid-cols-4 gap-2 sm:hidden">
+        <nav className="mt-2 grid grid-cols-4 gap-1.5 rounded-xl border border-black/10 bg-white/80 p-1.5 shadow-suave sm:hidden">
           {abasPrincipaisMobile.map(({ id, rotulo, Icone }) => (
             <button
               key={id}
@@ -1025,10 +1060,10 @@ export default function PaginaInicial() {
 
                 navegarParaAba(id);
               }}
-              className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-md border px-1 py-2 text-xs font-semibold ${
+              className={`flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-lg border px-1 py-1.5 text-[0.68rem] font-bold ${
                 (id === "turmas" ? ["turmas", "vinculos"].includes(abaAtiva) : abaAtiva === id)
-                  ? "border-destaque bg-destaque text-white"
-                  : "border-black/10 bg-white text-slate-700"
+                  ? "border-destaque bg-destaque text-white shadow-sm"
+                  : "border-transparent bg-transparent text-slate-700 hover:bg-teal-50"
               }`}
             >
               <Icone className="h-4 w-4" />
@@ -1041,10 +1076,10 @@ export default function PaginaInicial() {
               definirMenuFinanceiroAberto((aberto) => !aberto);
               definirMenuTurmasAberto(false);
             }}
-            className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-md border px-1 py-2 text-xs font-semibold ${
+            className={`flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-lg border px-1 py-1.5 text-[0.68rem] font-bold ${
               ["mensalidades", "pagas", "canceladas", "inadimplentes"].includes(abaAtiva)
-                ? "border-destaque bg-destaque text-white"
-                : "border-black/10 bg-white text-slate-700"
+                ? "border-destaque bg-destaque text-white shadow-sm"
+                : "border-transparent bg-transparent text-slate-700 hover:bg-teal-50"
             }`}
           >
             <Banknote className="h-4 w-4" />
@@ -1053,11 +1088,11 @@ export default function PaginaInicial() {
         </nav>
 
         {menuTurmasAberto && (
-          <div className="mt-2 rounded-lg border border-black/10 bg-white p-2 shadow-suave sm:hidden">
+          <div className="mt-2 rounded-xl border border-black/10 bg-white p-1.5 shadow-suave sm:hidden">
             <button
               type="button"
               onClick={() => navegarParaAba("vinculos")}
-              className={`inline-flex w-full items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold ${
+              className={`inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${
                 abaAtiva === "vinculos"
                   ? "border-destaque bg-teal-50 text-destaque"
                   : "border-black/10 bg-white text-slate-700"
@@ -1070,12 +1105,12 @@ export default function PaginaInicial() {
         )}
 
         {menuFinanceiroAberto && (
-          <div className="mt-2 grid grid-cols-2 gap-2 rounded-lg border border-black/10 bg-white p-2 shadow-suave sm:hidden">
+          <div className="mt-2 grid grid-cols-2 gap-1.5 rounded-xl border border-black/10 bg-white p-1.5 shadow-suave sm:hidden">
             {abasFinanceiroMobile.map(({ id, rotulo, Icone }) => (
               <button
                 key={id}
                 onClick={() => navegarParaAba(id)}
-                className={`inline-flex items-center justify-center gap-2 rounded-md border px-2 py-2 text-xs font-semibold ${
+                className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border px-2 py-2 text-xs font-semibold ${
                   abaAtiva === id
                     ? "border-destaque bg-teal-50 text-destaque"
                     : "border-black/10 bg-white text-slate-700"
@@ -1111,51 +1146,69 @@ export default function PaginaInicial() {
           </div>
         )}
 
-        <section className="mt-5">
+        <section key={abaAtiva} className="animate-tab-in mt-3 sm:mt-5">
           {abaAtiva === "dashboard" && (
-            <div className="space-y-4">
-              <div className="rounded-lg border border-black/10 bg-white px-3 py-2 shadow-suave sm:hidden">
+            <div className="space-y-2.5 sm:space-y-4">
+              {carregando && (
+                <div className="grid grid-cols-3 gap-2 sm:hidden" aria-label="Carregando resumo">
+                  <div className="skeleton h-16 rounded-xl" />
+                  <div className="skeleton h-16 rounded-xl" />
+                  <div className="skeleton h-16 rounded-xl" />
+                </div>
+              )}
+
+              <div className="surface-card px-3 py-2.5 sm:hidden">
                 <div className="grid grid-cols-3 divide-x divide-black/10 text-center">
                   <div className="px-1">
-                    <p className="text-lg font-bold text-slate-900">{quantidadeAlunosAtivos}</p>
-                    <p className="text-xs text-slate-600">alunos ativos</p>
+                    <Users className="mx-auto mb-1 h-3.5 w-3.5 text-destaque" />
+                    <p className="text-xl font-extrabold leading-none text-slate-950">{quantidadeAlunosAtivos}</p>
+                    <p className="mt-1 text-[0.68rem] font-semibold text-slate-500">ativos</p>
                   </div>
                   <div className="px-1">
-                    <p className="text-lg font-bold text-teal-900">{formatarMoeda(resumo.total_recebido)}</p>
-                    <p className="text-xs text-slate-600">recebidos</p>
+                    <CheckCircle2 className="mx-auto mb-1 h-3.5 w-3.5 text-destaque" />
+                    <p className="text-base font-extrabold leading-none text-teal-950">{formatarMoeda(resumo.total_recebido)}</p>
+                    <p className="mt-1 text-[0.68rem] font-semibold text-slate-500">recebidos</p>
                   </div>
                   <div className="px-1">
-                    <p className="text-lg font-bold text-red-900">{quantidadeAlunosInadimplentes}</p>
-                    <p className="text-xs text-slate-600">inadimplentes</p>
+                    <AlertCircle className="mx-auto mb-1 h-3.5 w-3.5 text-red-700" />
+                    <p className="text-xl font-extrabold leading-none text-red-950">{quantidadeAlunosInadimplentes}</p>
+                    <p className="mt-1 text-[0.68rem] font-semibold text-slate-500">inadimplentes</p>
                   </div>
                 </div>
               </div>
 
+              <div className="surface-card flex items-start gap-2 px-3 py-2 text-xs font-semibold text-slate-700 sm:hidden">
+                <TrendingUp className="mt-0.5 h-4 w-4 shrink-0 text-destaque" />
+                <p className="leading-relaxed">{resumoContextualDashboard}</p>
+              </div>
+
               <div className="grid grid-cols-2 gap-2 sm:hidden">
-                <CartaoResumo rotulo="Recebido" valor={formatarMoeda(resumo.total_recebido)} tom="verde" />
-                <CartaoResumo rotulo="Receita prevista" valor={formatarMoeda(resumo.receita_prevista_mes)} tom="azul" />
-                <CartaoResumo rotulo="Pendente" valor={formatarMoeda(resumo.total_pendente)} tom="amarelo" />
-                <CartaoResumo rotulo="Inadimplentes" valor={String(quantidadeAlunosInadimplentes)} tom="vermelho" />
+                <CartaoResumo rotulo="Recebido" valor={formatarMoeda(resumo.total_recebido)} tom="verde" Icone={CheckCircle2} />
+                <CartaoResumo rotulo="Receita prevista" valor={formatarMoeda(resumo.receita_prevista_mes)} tom="azul" Icone={Banknote} />
+                <CartaoResumo rotulo="Pendente" valor={formatarMoeda(resumo.total_pendente)} tom="amarelo" Icone={AlertCircle} />
+                <CartaoResumo rotulo="Inadimplentes" valor={String(quantidadeAlunosInadimplentes)} tom="vermelho" Icone={Users} />
               </div>
 
               <div className="hidden gap-4 sm:grid sm:grid-cols-2 lg:grid-cols-5">
-                <CartaoResumo rotulo="Recebido" valor={formatarMoeda(resumo.total_recebido)} tom="verde" />
-                <CartaoResumo rotulo="Receita prevista" valor={formatarMoeda(resumo.receita_prevista_mes)} tom="azul" />
-                <CartaoResumo rotulo="Receita recebida" valor={percentualReceitaRecebida} tom="verde" />
-                <CartaoResumo rotulo="Receita perdida" valor={formatarMoeda(receitaPerdidaMes)} tom="vermelho" />
-                <CartaoResumo rotulo="Pendente" valor={formatarMoeda(resumo.total_pendente)} tom="amarelo" />
-                <CartaoResumo rotulo="Atrasado" valor={formatarMoeda(resumo.total_atrasado)} tom="vermelho" />
-                <CartaoResumo rotulo="Inadimplentes" valor={String(quantidadeAlunosInadimplentes)} tom="vermelho" />
-                <CartaoResumo rotulo="Taxa inadimplencia" valor={taxaInadimplencia} tom="vermelho" />
-                <CartaoResumo rotulo="Novos alunos" valor={String(resumo.novos_alunos_mes)} tom="azul" />
-                <CartaoResumo rotulo="Alunos cancelados" valor={String(resumo.alunos_cancelados_mes)} tom="vermelho" />
+                <CartaoResumo rotulo="Recebido" valor={formatarMoeda(resumo.total_recebido)} tom="verde" Icone={CheckCircle2} />
+                <CartaoResumo rotulo="Receita prevista" valor={formatarMoeda(resumo.receita_prevista_mes)} tom="azul" Icone={Banknote} />
+                <CartaoResumo rotulo="Receita recebida" valor={percentualReceitaRecebida} tom="verde" Icone={CheckCircle2} />
+                <CartaoResumo rotulo="Receita perdida" valor={formatarMoeda(receitaPerdidaMes)} tom="vermelho" Icone={XCircle} />
+                <CartaoResumo rotulo="Pendente" valor={formatarMoeda(resumo.total_pendente)} tom="amarelo" Icone={AlertCircle} />
+                <CartaoResumo rotulo="Atrasado" valor={formatarMoeda(resumo.total_atrasado)} tom="vermelho" Icone={AlertCircle} />
+                <CartaoResumo rotulo="Inadimplentes" valor={String(quantidadeAlunosInadimplentes)} tom="vermelho" Icone={Users} />
+                <CartaoResumo rotulo="Taxa inadimplencia" valor={taxaInadimplencia} tom="vermelho" Icone={AlertCircle} />
+                <CartaoResumo rotulo="Novos alunos" valor={String(resumo.novos_alunos_mes)} tom="azul" Icone={CalendarPlus} />
+                <CartaoResumo rotulo="Alunos cancelados" valor={String(resumo.alunos_cancelados_mes)} tom="vermelho" Icone={CircleX} />
               </div>
 
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 shadow-suave sm:p-4">
-                <div className="mb-3 flex items-center justify-between gap-3">
+              <GraficoReceita dados={receitaUltimosSeisMeses} totalPeriodo={totalReceitaPeriodo} />
+
+              <div className="surface-card border-amber-200 bg-amber-50/80 p-3 sm:p-4">
+                <div className="mb-2 flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-amber-900">Atencao</p>
-                    <h2 className="text-lg font-bold text-amber-950">Alertas</h2>
+                    <p className="text-xs font-bold uppercase text-amber-900">Atencao operacional</p>
+                    <h2 className="text-base font-extrabold text-amber-950 sm:text-lg">Alertas</h2>
                   </div>
                   <button
                     type="button"
@@ -1163,58 +1216,26 @@ export default function PaginaInicial() {
                       navigator.clipboard.writeText(textoAlertasDashboard);
                       definirMensagem("Alertas copiados com sucesso.");
                     }}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-amber-200 bg-white text-amber-900"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-amber-200 bg-white text-amber-900 hover:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2"
                     title="Copiar alertas"
+                    aria-label="Copiar alertas"
                   >
-                    <Copy className="h-5 w-5" />
+                    <Copy className="h-4 w-4" />
                   </button>
                 </div>
 
-                <div className="space-y-2 rounded-md border border-amber-200 bg-white p-3 text-sm font-semibold text-slate-800">
-                  <p className="flex items-start gap-2">
-                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
-                    {alertasDashboard.mensalidadesVencemHoje} mensalidade(s) vencem hoje
-                  </p>
-                  <p className="flex items-start gap-2">
-                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-700" />
-                    {alertasDashboard.alunosAtrasadosMaisDeQuinzeDias} aluno(s) com pagamento atrasado ha mais de 15 dias
-                  </p>
-                  <p className="flex items-start gap-2">
-                    <Gift className="mt-0.5 h-4 w-4 shrink-0 text-destaque" />
-                    {alertasDashboard.aniversariantesAmanha} aniversariante(s) amanha
-                  </p>
+                <div className="space-y-1.5">
+                  <LinhaAlerta Icone={AlertCircle} titulo="Hoje" valor={`${alertasDashboard.mensalidadesVencemHoje} mensalidades vencem hoje`} tom="amber" />
+                  <LinhaAlerta Icone={AlertCircle} titulo="Atrasados" valor={`${alertasDashboard.alunosAtrasadosMaisDeQuinzeDias} alunos ha mais de 15 dias`} tom="red" />
+                  <LinhaAlerta Icone={Gift} titulo="Amanha" valor={`${alertasDashboard.aniversariantesAmanha} aniversariantes`} tom="teal" />
                 </div>
               </div>
 
-              <div className="sm:hidden">
-                <button
-                  type="button"
-                  onClick={() => definirIndicadoresExpandidos((expandido) => !expandido)}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
-                >
-                  {indicadoresExpandidos ? "Ver menos indicadores" : "Ver mais indicadores"}
-                  <ChevronDown className={`h-4 w-4 transition-transform ${indicadoresExpandidos ? "rotate-180" : ""}`} />
-                </button>
-
-                {indicadoresExpandidos && (
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    <CartaoResumo rotulo="Receita recebida" valor={percentualReceitaRecebida} tom="verde" />
-                    <CartaoResumo rotulo="Receita perdida" valor={formatarMoeda(receitaPerdidaMes)} tom="vermelho" />
-                    <CartaoResumo rotulo="Atrasado" valor={formatarMoeda(resumo.total_atrasado)} tom="vermelho" />
-                    <CartaoResumo rotulo="Taxa inadimplencia" valor={taxaInadimplencia} tom="vermelho" />
-                    <CartaoResumo rotulo="Novos alunos" valor={String(resumo.novos_alunos_mes)} tom="azul" />
-                    <CartaoResumo rotulo="Alunos cancelados" valor={String(resumo.alunos_cancelados_mes)} tom="vermelho" />
-                  </div>
-                )}
-              </div>
-
-              <GraficoReceita dados={receitaUltimosSeisMeses} />
-
-              <div className="rounded-lg border border-black/10 bg-white p-4 shadow-suave">
-                <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="surface-card p-3 sm:p-4">
+                <div className="mb-2.5 flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-slate-600">Alunos vinculados</p>
-                    <h2 className="text-lg font-bold">Ocupacao das turmas</h2>
+                    <p className="text-xs font-bold uppercase text-slate-500">Alunos vinculados</p>
+                    <h2 className="text-base font-extrabold text-slate-950 sm:text-lg">Ocupacao das turmas</h2>
                   </div>
                   <div className="flex h-10 w-10 items-center justify-center rounded-md bg-sky-50 text-sky-800">
                     <GraduationCap className="h-5 w-5" />
@@ -1228,33 +1249,38 @@ export default function PaginaInicial() {
                 )}
 
                 {ocupacaoTurmas.length > 0 && (
-                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                    {ocupacaoTurmas.map(({ turma, quantidade }) => (
-                      <article key={turma.id} className="rounded-md border border-black/10 bg-slate-50 p-3">
+                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                    {ocupacaoTurmas.map(({ turma, quantidade }) => {
+                      const capacidadeTurma = Number(turma.capacidade_alunos ?? capacidadePadraoTurma) || capacidadePadraoTurma;
+                      const percentualOcupacao = Math.min(Math.round((quantidade / capacidadeTurma) * 100), 100);
+                      return (
+                      <article key={turma.id} className="rounded-lg border border-black/10 bg-slate-50 p-3">
                         <div className="flex items-center justify-between gap-3">
-                          <h3 className="font-semibold">{turma.nome}</h3>
-                          <strong className="text-sm text-slate-900">{quantidade} aluno(s)</strong>
+                          <h3 className="text-sm font-extrabold text-slate-950">{turma.nome}</h3>
+                          <strong className="rounded-full bg-white px-2 py-1 text-xs text-slate-900">{quantidade} / {capacidadeTurma} alunos</strong>
                         </div>
-                        <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
+                        <div className="mt-2 flex items-center justify-between text-xs font-semibold text-slate-500">
+                          <span>{turma.dias_semana || "Dias nao informados"} | {turma.horario || "Horario nao informado"}</span>
+                          <span>{percentualOcupacao}%</span>
+                        </div>
+                        <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
                           <div
-                            className="h-full rounded-full bg-destaque"
-                            style={{ width: `${(quantidade / maiorOcupacaoTurma) * 100}%` }}
+                            className="h-full rounded-full bg-destaque transition-[width] duration-500"
+                            style={{ width: `${percentualOcupacao}%` }}
                           />
                         </div>
-                        <p className="mt-2 text-xs text-slate-600">
-                          {turma.dias_semana || "Dias nao informados"} | {turma.horario || "Horario nao informado"}
-                        </p>
                       </article>
-                    ))}
+                    );
+                    })}
                   </div>
                 )}
               </div>
 
-              <div className="rounded-lg border border-black/10 bg-white p-4 shadow-suave">
-                <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="surface-card p-3 sm:p-4">
+                <div className="mb-2.5 flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-slate-600">Este mes</p>
-                    <h2 className="text-lg font-bold">Aniversariantes</h2>
+                    <p className="text-xs font-bold uppercase text-slate-500">Este mes</p>
+                    <h2 className="text-base font-extrabold text-slate-950 sm:text-lg">Aniversariantes</h2>
                   </div>
                   <div className="flex h-10 w-10 items-center justify-center rounded-md bg-teal-50 text-destaque">
                     <Gift className="h-5 w-5" />
@@ -1268,18 +1294,42 @@ export default function PaginaInicial() {
                 )}
 
                 {aniversariantesDoMes.length > 0 && (
-                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                     {aniversariantesDoMes.map((aluno) => (
-                      <article key={aluno.id} className="rounded-md border border-black/10 bg-slate-50 p-3">
-                        <h3 className="font-semibold">{aluno.nome_completo}</h3>
-                        <p className="mt-1 text-sm text-slate-600">
-                          Aniversario em {formatarDiaMes(aluno.data_nascimento ?? "")}
-                        </p>
-                        {aluno.telefone && <p className="mt-1 text-sm text-slate-600">{aluno.telefone}</p>}
+                      <article key={aluno.id} className="flex items-center justify-between gap-3 rounded-lg border border-black/10 bg-slate-50 p-3">
+                        <div className="min-w-0">
+                          <h3 className="truncate text-sm font-extrabold text-slate-950">{aluno.nome_completo}</h3>
+                          {aluno.telefone && <p className="mt-0.5 text-xs font-medium text-slate-500">{aluno.telefone}</p>}
+                        </div>
+                        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-teal-50 px-2.5 py-1.5 text-xs font-extrabold text-destaque">
+                          <Gift className="h-3.5 w-3.5" />
+                          {formatarDiaMes(aluno.data_nascimento ?? "")}
+                        </span>
                       </article>
                     ))}
                   </div>
                 )}
+              </div>
+
+              <div className="sm:hidden">
+                <button
+                  type="button"
+                  onClick={() => definirIndicadoresExpandidos((expandido) => !expandido)}
+                  className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-black/10 bg-white/80 px-3 py-1.5 text-sm font-bold text-slate-700 shadow-sm hover:border-destaque focus:outline-none focus:ring-2 focus:ring-destaque focus:ring-offset-2"
+                  aria-expanded={indicadoresExpandidos}
+                >
+                  {indicadoresExpandidos ? "Ver menos indicadores" : "Mais indicadores"}
+                  <ChevronDown className={`h-4 w-4 transition-transform ${indicadoresExpandidos ? "rotate-180" : ""}`} />
+                </button>
+
+                <div className={`grid overflow-hidden transition-all duration-300 ${indicadoresExpandidos ? "mt-2 max-h-[420px] grid-cols-2 gap-2 opacity-100" : "max-h-0 grid-cols-2 gap-2 opacity-0"}`}>
+                  <CartaoResumo rotulo="Receita recebida" valor={percentualReceitaRecebida} tom="verde" Icone={CheckCircle2} />
+                  <CartaoResumo rotulo="Receita perdida" valor={formatarMoeda(receitaPerdidaMes)} tom="vermelho" Icone={XCircle} />
+                  <CartaoResumo rotulo="Atrasado" valor={formatarMoeda(resumo.total_atrasado)} tom="vermelho" Icone={AlertCircle} />
+                  <CartaoResumo rotulo="Taxa inadimplencia" valor={taxaInadimplencia} tom="vermelho" Icone={AlertCircle} />
+                  <CartaoResumo rotulo="Novos alunos" valor={String(resumo.novos_alunos_mes)} tom="azul" Icone={CalendarPlus} />
+                  <CartaoResumo rotulo="Alunos cancelados" valor={String(resumo.alunos_cancelados_mes)} tom="vermelho" Icone={CircleX} />
+                </div>
               </div>
             </div>
           )}
@@ -1287,50 +1337,56 @@ export default function PaginaInicial() {
           {abaAtiva === "alunos" && (
             <div className="grid gap-4 lg:grid-cols-[420px_1fr]">
               <Formulario titulo={alunoEmEdicao ? "Alterar aluno" : "Cadastrar aluno"} onSubmit={salvarAluno}>
-                <Campo rotulo="Nome completo" obrigatorio>
-                  <input className="campo" value={formAluno.nome_completo} onChange={(e) => definirFormAluno({ ...formAluno, nome_completo: e.target.value })} required />
-                </Campo>
-                <Campo rotulo="Telefone">
-                  <input className="campo" value={formAluno.telefone} onChange={(e) => definirFormAluno({ ...formAluno, telefone: e.target.value })} />
-                </Campo>
-                <Campo rotulo="Data de nascimento">
-                  <input className="campo" type="date" value={formAluno.data_nascimento} onChange={(e) => definirFormAluno({ ...formAluno, data_nascimento: e.target.value })} />
-                </Campo>
-                <Campo rotulo="Data de matricula" obrigatorio>
-                  <input className="campo" type="date" value={formAluno.data_matricula} onChange={(e) => definirFormAluno({ ...formAluno, data_matricula: e.target.value })} required />
-                </Campo>
-                <Campo rotulo="Cor da faixa">
-                  <select
-                    className="campo"
-                    value={formAluno.cor_faixa}
-                    onChange={(e) => definirFormAluno({ ...formAluno, cor_faixa: e.target.value as CorFaixa })}
-                  >
-                    {faixasAlunos.map((faixa) => (
-                      <option key={faixa.valor} value={faixa.valor}>
-                        {faixa.rotulo}
-                      </option>
-                    ))}
-                  </select>
-                </Campo>
-                <Campo rotulo="Status do aluno">
-                  <select
-                    className="campo"
-                    value={formAluno.status}
-                    onChange={(e) => definirFormAluno({ ...formAluno, status: e.target.value })}
-                  >
-                    <option value="Ativo">Ativo</option>
-                    <option value="Inativo">Cancelado</option>
-                  </select>
-                </Campo>
-                <Campo rotulo="Observacoes">
-                  <textarea className="campo min-h-24" value={formAluno.observacoes} onChange={(e) => definirFormAluno({ ...formAluno, observacoes: e.target.value })} />
-                </Campo>
+                <SecaoFormulario titulo="Dados pessoais">
+                  <Campo rotulo="Nome completo" obrigatorio>
+                    <input className="campo" value={formAluno.nome_completo} onChange={(e) => definirFormAluno({ ...formAluno, nome_completo: e.target.value })} required />
+                  </Campo>
+                  <Campo rotulo="Telefone">
+                    <input className="campo" value={formAluno.telefone} onChange={(e) => definirFormAluno({ ...formAluno, telefone: e.target.value })} />
+                  </Campo>
+                  <Campo rotulo="Data de nascimento">
+                    <input className="campo" type="date" value={formAluno.data_nascimento} onChange={(e) => definirFormAluno({ ...formAluno, data_nascimento: e.target.value })} />
+                  </Campo>
+                </SecaoFormulario>
+                <SecaoFormulario titulo="Dados da academia">
+                  <Campo rotulo="Data de matricula" obrigatorio>
+                    <input className="campo" type="date" value={formAluno.data_matricula} onChange={(e) => definirFormAluno({ ...formAluno, data_matricula: e.target.value })} required />
+                  </Campo>
+                  <Campo rotulo="Cor da faixa">
+                    <select
+                      className="campo"
+                      value={formAluno.cor_faixa}
+                      onChange={(e) => definirFormAluno({ ...formAluno, cor_faixa: e.target.value as CorFaixa })}
+                    >
+                      {faixasAlunos.map((faixa) => (
+                        <option key={faixa.valor} value={faixa.valor}>
+                          {faixa.rotulo}
+                        </option>
+                      ))}
+                    </select>
+                  </Campo>
+                  <Campo rotulo="Status do aluno">
+                    <select
+                      className="campo"
+                      value={formAluno.status}
+                      onChange={(e) => definirFormAluno({ ...formAluno, status: e.target.value })}
+                    >
+                      <option value="Ativo">Ativo</option>
+                      <option value="Inativo">Cancelado</option>
+                    </select>
+                  </Campo>
+                </SecaoFormulario>
+                <SecaoFormulario titulo="Observacoes">
+                  <Campo rotulo="Observacoes">
+                    <textarea className="campo min-h-20" value={formAluno.observacoes} onChange={(e) => definirFormAluno({ ...formAluno, observacoes: e.target.value })} />
+                  </Campo>
+                </SecaoFormulario>
                 <BotaoSalvar salvando={salvando} texto={alunoEmEdicao ? "Salvar alteracao" : "Salvar aluno"} />
                 {alunoEmEdicao && (
                   <button
                     type="button"
                     onClick={cancelarEdicaoAluno}
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-slate-700"
+                    className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
                   >
                     Cancelar alteracao
                   </button>
@@ -1349,28 +1405,32 @@ export default function PaginaInicial() {
                 {alunosPaginados.map((aluno) => (
                   <article
                     key={aluno.id}
-                    className={`mb-3 rounded-md border p-3 ${
-                      alunoEmEdicao?.id === aluno.id ? "border-destaque bg-teal-50" : "border-black/10 bg-slate-50"
+                    className={`cartao-interativo mb-2 rounded-xl border p-3 shadow-sm ${
+                      alunoEmEdicao?.id === aluno.id ? "border-destaque bg-teal-50" : "border-black/10 bg-white"
                     }`}
                   >
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <h3 className="font-semibold">{aluno.nome_completo}</h3>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex items-start justify-between gap-2 sm:block">
+                          <h3 className="min-w-0 text-sm font-extrabold leading-snug text-slate-950 sm:text-base">{aluno.nome_completo}</h3>
+                          <Etiqueta status={aluno.status === "Inativo" ? "Cancelado" : "Ativo"} />
+                        </div>
                         <p className="mt-1 text-sm text-slate-600">
                           {aluno.telefone ?? "Sem telefone"} | Matricula: {formatarData(aluno.data_matricula)}
                         </p>
-                        <p className="mt-1 text-sm font-semibold text-slate-700">
+                        <p className="mt-1 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                          <span className={`h-2.5 w-2.5 rounded-full border ${corFaixaClasse(aluno.cor_faixa)}`} aria-hidden="true" />
                           Faixa: {faixasAlunos.find((faixa) => faixa.valor === aluno.cor_faixa)?.rotulo ?? "Branca ⚪"}
                         </p>
-                        <p className="mt-1 text-sm font-semibold text-slate-700">
+                        <p className="sr-only">
                           Status: {aluno.status === "Inativo" ? "Cancelado" : "Ativo"}
                         </p>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 sm:self-end">
                         <button
                           type="button"
                           onClick={() => iniciarEdicaoAluno(aluno)}
-                          className="inline-flex items-center justify-center gap-2 rounded-md border border-destaque bg-white px-3 py-2 text-sm font-semibold text-destaque"
+                          className="inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-lg border border-destaque bg-white px-2.5 py-1.5 text-xs font-bold text-destaque sm:flex-none"
                         >
                           <Pencil className="h-4 w-4" />
                           Alterar
@@ -1378,7 +1438,7 @@ export default function PaginaInicial() {
                         <button
                           type="button"
                           onClick={() => excluirAluno(aluno)}
-                          className="inline-flex items-center justify-center gap-2 rounded-md border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700"
+                          className="inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-bold text-red-700 sm:flex-none"
                         >
                           <Trash2 className="h-4 w-4" />
                           Excluir
@@ -1400,24 +1460,37 @@ export default function PaginaInicial() {
           {abaAtiva === "turmas" && (
             <div className="grid gap-4 lg:grid-cols-[420px_1fr]">
               <Formulario titulo={turmaEmEdicao ? "Alterar turma" : "Cadastrar turma"} onSubmit={salvarTurma}>
-                <Campo rotulo="Nome da turma" obrigatorio>
-                  <input className="campo" value={formTurma.nome} onChange={(e) => definirFormTurma({ ...formTurma, nome: e.target.value })} required />
-                </Campo>
-                <Campo rotulo="Dias da semana">
-                  <input className="campo" value={formTurma.dias_semana} onChange={(e) => definirFormTurma({ ...formTurma, dias_semana: e.target.value })} />
-                </Campo>
-                <Campo rotulo="Horario">
-                  <input className="campo" value={formTurma.horario} onChange={(e) => definirFormTurma({ ...formTurma, horario: e.target.value })} />
-                </Campo>
-                <Campo rotulo="Valor da mensalidade" obrigatorio>
-                  <input className="campo" type="number" min="0" step="0.01" value={formTurma.valor_mensalidade} onChange={(e) => definirFormTurma({ ...formTurma, valor_mensalidade: e.target.value })} required />
-                </Campo>
+                <SecaoFormulario titulo="Dados da turma">
+                  <Campo rotulo="Nome da turma" obrigatorio>
+                    <input className="campo" value={formTurma.nome} onChange={(e) => definirFormTurma({ ...formTurma, nome: e.target.value })} required />
+                  </Campo>
+                  <Campo rotulo="Dias da semana">
+                    <input className="campo" value={formTurma.dias_semana} onChange={(e) => definirFormTurma({ ...formTurma, dias_semana: e.target.value })} />
+                  </Campo>
+                  <Campo rotulo="Horario">
+                    <input className="campo" value={formTurma.horario} onChange={(e) => definirFormTurma({ ...formTurma, horario: e.target.value })} />
+                  </Campo>
+                  <Campo rotulo="Valor da mensalidade" obrigatorio>
+                    <input className="campo" type="number" min="0" step="0.01" value={formTurma.valor_mensalidade} onChange={(e) => definirFormTurma({ ...formTurma, valor_mensalidade: e.target.value })} required />
+                  </Campo>
+                  <Campo rotulo="Capacidade de alunos" obrigatorio>
+                    <input
+                      className="campo"
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={formTurma.capacidade_alunos}
+                      onChange={(e) => definirFormTurma({ ...formTurma, capacidade_alunos: e.target.value })}
+                      required
+                    />
+                  </Campo>
+                </SecaoFormulario>
                 <BotaoSalvar salvando={salvando} texto={turmaEmEdicao ? "Salvar alteracao" : "Salvar turma"} />
                 {turmaEmEdicao && (
                   <button
                     type="button"
                     onClick={cancelarEdicaoTurma}
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-slate-700"
+                    className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
                   >
                     Cancelar alteracao
                   </button>
@@ -1432,22 +1505,36 @@ export default function PaginaInicial() {
                 {turmasPaginadas.map((turma) => (
                   <article
                     key={turma.id}
-                    className={`mb-3 rounded-md border p-3 ${
-                      turmaEmEdicao?.id === turma.id ? "border-destaque bg-teal-50" : "border-black/10 bg-slate-50"
+                    className={`cartao-interativo mb-2 rounded-xl border p-3 shadow-sm ${
+                      turmaEmEdicao?.id === turma.id ? "border-destaque bg-teal-50" : "border-black/10 bg-white"
                     }`}
                   >
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <h3 className="font-semibold">{turma.nome}</h3>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="min-w-0 text-sm font-extrabold leading-snug text-slate-950 sm:text-base">{turma.nome}</h3>
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-teal-50 px-2 py-1 text-xs font-bold text-destaque">
+                            <Users className="h-3.5 w-3.5" />
+                            {vinculos.filter((vinculo) => vinculo.turma_id === turma.id).length} / {turma.capacidade_alunos ?? capacidadePadraoTurma}
+                          </span>
+                        </div>
                         <p className="mt-1 text-sm text-slate-600">
-                          {turma.dias_semana ?? "Dias nao informados"} | {turma.horario ?? "Horario nao informado"} | {formatarMoeda(Number(turma.valor_mensalidade))}
+                          {turma.dias_semana ?? "Dias nao informados"} | {turma.horario ?? "Horario nao informado"}
                         </p>
+                        <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-teal-100 bg-teal-50 px-2 py-1 text-xs font-bold text-destaque">
+                          <Banknote className="h-3.5 w-3.5" />
+                          {formatarMoeda(Number(turma.valor_mensalidade))}
+                        </span>
+                        <span className="ml-1 mt-2 inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-bold text-slate-600">
+                          <Users className="h-3.5 w-3.5" />
+                          Capacidade: {turma.capacidade_alunos ?? capacidadePadraoTurma}
+                        </span>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 sm:self-end">
                         <button
                           type="button"
                           onClick={() => iniciarEdicaoTurma(turma)}
-                          className="inline-flex items-center justify-center gap-2 rounded-md border border-destaque bg-white px-3 py-2 text-sm font-semibold text-destaque"
+                          className="inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-lg border border-destaque bg-white px-2.5 py-1.5 text-xs font-bold text-destaque sm:flex-none"
                         >
                           <Pencil className="h-4 w-4" />
                           Alterar
@@ -1455,7 +1542,7 @@ export default function PaginaInicial() {
                         <button
                           type="button"
                           onClick={() => excluirTurma(turma)}
-                          className="inline-flex items-center justify-center gap-2 rounded-md border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700"
+                          className="inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-bold text-red-700 sm:flex-none"
                         >
                           <Trash2 className="h-4 w-4" />
                           Excluir
@@ -1824,9 +1911,23 @@ export default function PaginaInicial() {
       </div>
 
       {abaAtiva === "dashboard" && (
-        <div className="fixed bottom-5 right-4 z-50 sm:hidden">
+        <>
+        {acoesRapidasAbertas && (
+          <button
+            type="button"
+            className="fixed inset-0 z-30 cursor-default bg-transparent sm:hidden"
+            aria-label="Fechar acoes rapidas"
+            onClick={() => definirAcoesRapidasAbertas(false)}
+          />
+        )}
+        <div
+          className={`fixed right-4 z-40 transition-all duration-200 sm:hidden ${
+            acoesRapidasVisiveis ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0"
+          }`}
+          style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 1.35rem)" }}
+        >
           {acoesRapidasAbertas && (
-            <div className="mb-3 w-56 space-y-2 rounded-lg border border-black/10 bg-white p-2 shadow-2xl">
+            <div className="animate-menu-fab mb-3 w-52 space-y-1.5 rounded-xl border border-black/10 bg-white p-2 shadow-2xl">
               <button
                 type="button"
                 onClick={() => {
@@ -1834,10 +1935,10 @@ export default function PaginaInicial() {
                   definirFormAluno(alunoInicial);
                   navegarParaAba("alunos");
                 }}
-                className="inline-flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className="inline-flex min-h-10 w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-teal-50"
               >
                 <Users className="h-4 w-4 text-destaque" />
-                Novo aluno
+                Cadastrar aluno
               </button>
               <button
                 type="button"
@@ -1846,10 +1947,10 @@ export default function PaginaInicial() {
                   definirFormTurma(turmaInicial);
                   navegarParaAba("turmas");
                 }}
-                className="inline-flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className="inline-flex min-h-10 w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-teal-50"
               >
                 <GraduationCap className="h-4 w-4 text-destaque" />
-                Nova turma
+                Cadastrar turma
               </button>
               <button
                 type="button"
@@ -1857,10 +1958,10 @@ export default function PaginaInicial() {
                   definirMensalidadeEmEdicao(null);
                   navegarParaAba("mensalidades");
                 }}
-                className="inline-flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className="inline-flex min-h-10 w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-teal-50"
               >
                 <Banknote className="h-4 w-4 text-destaque" />
-                Registrar pagamento
+                Nova mensalidade
               </button>
               <button
                 type="button"
@@ -1870,7 +1971,7 @@ export default function PaginaInicial() {
                   definirTurmaSelecionada("");
                   navegarParaAba("vinculos");
                 }}
-                className="inline-flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className="inline-flex min-h-10 w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-teal-50"
               >
                 <LinkIcon className="h-4 w-4 text-destaque" />
                 Vincular aluno
@@ -1880,13 +1981,14 @@ export default function PaginaInicial() {
           <button
             type="button"
             onClick={() => definirAcoesRapidasAbertas((aberto) => !aberto)}
-            className="ml-auto flex h-14 w-14 items-center justify-center rounded-full bg-destaque text-white shadow-2xl"
+            className="ml-auto flex h-12 w-12 items-center justify-center rounded-full bg-destaque text-white shadow-[0_14px_28px_rgba(15,118,110,0.28)] ring-4 ring-white/80 hover:scale-105 active:scale-95 focus:outline-none focus:ring-4 focus:ring-teal-200"
             aria-label="Abrir acoes rapidas"
             aria-expanded={acoesRapidasAbertas}
           >
-            <Plus className={`h-6 w-6 transition-transform ${acoesRapidasAbertas ? "rotate-45" : ""}`} />
+            <Plus className={`h-5 w-5 transition-transform duration-200 ${acoesRapidasAbertas ? "rotate-45" : ""}`} />
           </button>
         </div>
+        </>
       )}
     </main>
   );
@@ -1895,7 +1997,7 @@ export default function PaginaInicial() {
 function Campo({ rotulo, obrigatorio, children }: { rotulo: string; obrigatorio?: boolean; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-sm font-semibold text-slate-700">
+      <span className="mb-1 block text-xs font-bold uppercase text-slate-600">
         {rotulo} {obrigatorio && <span className="text-perigo">*</span>}
       </span>
       {children}
@@ -1903,10 +2005,19 @@ function Campo({ rotulo, obrigatorio, children }: { rotulo: string; obrigatorio?
   );
 }
 
+function SecaoFormulario({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+  return (
+    <fieldset className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+      <legend className="px-1 text-xs font-extrabold uppercase text-destaque">{titulo}</legend>
+      {children}
+    </fieldset>
+  );
+}
+
 function Formulario({ titulo, onSubmit, children }: { titulo: string; onSubmit: (evento: React.FormEvent<HTMLFormElement>) => void; children: React.ReactNode }) {
   return (
-    <form onSubmit={onSubmit} className="space-y-4 rounded-lg border border-black/10 bg-white p-4 shadow-suave">
-      <h2 className="text-lg font-bold">{titulo}</h2>
+    <form onSubmit={onSubmit} className="surface-card space-y-3 p-3 sm:p-4">
+      <h2 className="text-base font-extrabold text-slate-950 sm:text-lg">{titulo}</h2>
       {children}
     </form>
   );
@@ -1914,14 +2025,44 @@ function Formulario({ titulo, onSubmit, children }: { titulo: string; onSubmit: 
 
 function PainelLista({ titulo, children }: { titulo: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-black/10 bg-white p-4 shadow-suave">
-      <h2 className="mb-4 text-lg font-bold">{titulo}</h2>
+    <div className="surface-card p-3 sm:p-4">
+      <h2 className="mb-3 text-base font-extrabold text-slate-950 sm:text-lg">{titulo}</h2>
       {children}
     </div>
   );
 }
 
-function GraficoReceita({ dados }: { dados: ReceitaMensal[] }) {
+function LinhaAlerta({
+  Icone,
+  titulo,
+  valor,
+  tom
+}: {
+  Icone: typeof AlertCircle;
+  titulo: string;
+  valor: string;
+  tom: "amber" | "red" | "teal";
+}) {
+  const classes = {
+    amber: "bg-amber-100 text-amber-800",
+    red: "bg-red-100 text-red-800",
+    teal: "bg-teal-100 text-destaque"
+  };
+
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-100 bg-white px-3 py-2 text-sm">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${classes[tom]}`}>
+          <Icone className="h-4 w-4" />
+        </span>
+        <span className={`rounded-full px-2 py-0.5 text-[0.65rem] font-extrabold uppercase ${classes[tom]}`}>{titulo}</span>
+      </div>
+      <span className="min-w-0 text-right text-xs font-bold text-slate-800">{valor}</span>
+    </div>
+  );
+}
+
+function GraficoReceita({ dados, totalPeriodo }: { dados: ReceitaMensal[]; totalPeriodo: number }) {
   const [detalhesVisiveis, definirDetalhesVisiveis] = useState(false);
   const largura = 720;
   const altura = 260;
@@ -1943,14 +2084,25 @@ function GraficoReceita({ dados }: { dados: ReceitaMensal[] }) {
   });
 
   return (
-    <div className="rounded-lg border border-black/10 bg-white p-3 shadow-suave sm:p-4">
-      <div className="mb-2 sm:mb-4">
-        <p className="text-sm font-semibold text-slate-600">Ultimos 6 meses</p>
-        <h2 className="text-lg font-bold">Receita recebida</h2>
+    <div className="surface-card p-3 sm:p-4">
+      <div className="mb-2.5 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase text-destaque">Fluxo confirmado</p>
+          <h2 className="text-base font-extrabold text-slate-950 sm:text-lg">Receita recebida</h2>
+          <p className="text-xs font-medium text-slate-500">Ultimos 6 meses</p>
+        </div>
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-destaque">
+          <Banknote className="h-4 w-4" />
+        </span>
+      </div>
+
+      <div className="mb-2 rounded-lg border border-teal-100 bg-teal-50/60 px-3 py-2">
+        <p className="text-[0.68rem] font-bold uppercase text-teal-700">Total recebido no periodo</p>
+        <strong className="block text-lg font-extrabold leading-tight text-teal-950">{formatarMoeda(totalPeriodo)}</strong>
       </div>
 
       <div className="overflow-hidden sm:overflow-x-auto">
-        <svg className="h-[190px] w-full sm:h-auto sm:min-w-[680px]" viewBox={`0 0 ${largura} ${altura}`} role="img" aria-label="Grafico de receita dos ultimos 6 meses">
+        <svg className="h-[240px] w-full sm:h-auto sm:min-w-[680px]" viewBox={`0 0 ${largura} ${altura}`} role="img" aria-label="Grafico de receita dos ultimos 6 meses">
           <defs>
             <linearGradient id="graficoReceita" x1="0" x2="0" y1="0" y2="1">
               <stop offset="0%" stopColor="#0f766e" stopOpacity="0.22" />
@@ -1995,14 +2147,15 @@ function GraficoReceita({ dados }: { dados: ReceitaMensal[] }) {
       <button
         type="button"
         onClick={() => definirDetalhesVisiveis((visivel) => !visivel)}
-        className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
+        className="mx-auto mt-2 flex min-h-8 items-center justify-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold text-destaque hover:bg-teal-50 focus:outline-none focus:ring-2 focus:ring-destaque focus:ring-offset-2"
+        aria-expanded={detalhesVisiveis}
       >
         {detalhesVisiveis ? "Ocultar detalhes" : "Ver detalhes"}
         <ChevronDown className={`h-4 w-4 transition-transform ${detalhesVisiveis ? "rotate-180" : ""}`} />
       </button>
 
       {detalhesVisiveis && (
-        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-3 grid gap-2 transition-all sm:grid-cols-2 lg:grid-cols-3">
           {dados.map((item) => (
             <div key={`${item.mes}-${item.ano}`} className="flex items-center justify-between rounded-md border border-black/10 bg-slate-50 px-3 py-2 text-sm">
               <span className="font-semibold text-slate-700">{item.rotulo}</span>
@@ -2017,7 +2170,7 @@ function GraficoReceita({ dados }: { dados: ReceitaMensal[] }) {
 
 function BotaoSalvar({ salvando, texto }: { salvando: boolean; texto: string }) {
   return (
-    <button disabled={salvando} className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-destaque px-4 py-3 text-sm font-semibold text-white">
+    <button disabled={salvando} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-destaque px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-teal-800 focus:outline-none focus:ring-2 focus:ring-destaque focus:ring-offset-2">
       {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
       {texto}
     </button>
@@ -2071,26 +2224,66 @@ function Paginacao({
   );
 }
 
-function CartaoResumo({ rotulo, valor, tom }: { rotulo: string; valor: string; tom: "verde" | "azul" | "amarelo" | "vermelho" | "cinza" }) {
+function CartaoResumo({
+  rotulo,
+  valor,
+  tom,
+  Icone
+}: {
+  rotulo: string;
+  valor: string;
+  tom: "verde" | "azul" | "amarelo" | "vermelho" | "cinza";
+  Icone?: typeof Banknote;
+}) {
   const classes = {
-    verde: "border-teal-200 bg-teal-50 text-teal-900",
-    azul: "border-sky-200 bg-sky-50 text-sky-900",
-    amarelo: "border-amber-200 bg-amber-50 text-amber-900",
-    vermelho: "border-red-200 bg-red-50 text-red-900",
-    cinza: "border-slate-200 bg-white text-slate-900"
+    verde: "border-teal-200 bg-teal-50 text-teal-950",
+    azul: "border-sky-200 bg-sky-50 text-sky-950",
+    amarelo: "border-amber-200 bg-amber-50 text-amber-950",
+    vermelho: "border-red-200 bg-red-50 text-red-950",
+    cinza: "border-slate-200 bg-white text-slate-950"
   };
 
   return (
-    <div className={`min-h-[92px] rounded-lg border p-3 shadow-suave sm:min-h-0 sm:p-4 ${classes[tom]}`}>
-      <p className="text-xs font-semibold sm:text-sm">{rotulo}</p>
-      <strong className="mt-2 block break-words text-xl sm:text-2xl">{valor}</strong>
+    <div className={`cartao-interativo min-h-[82px] rounded-xl border p-2.5 shadow-sm sm:min-h-0 sm:p-4 ${classes[tom]}`}>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[0.64rem] font-bold uppercase leading-tight text-current/65 sm:text-sm">{rotulo}</p>
+        {Icone && (
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/55 text-current/75">
+            <Icone className="h-3.5 w-3.5" />
+          </span>
+        )}
+      </div>
+      <strong className="mt-2 block break-words text-xl font-black leading-tight tracking-normal sm:text-2xl">{valor}</strong>
     </div>
   );
 }
 
 function Etiqueta({ status }: { status: string }) {
-  const classe = status === "Pago" ? "bg-teal-100 text-teal-800" : status === "Atrasado" ? "bg-red-100 text-red-800" : status === "Cancelado" ? "bg-slate-200 text-slate-700" : "bg-amber-100 text-amber-800";
-  return <span className={`rounded-full px-3 py-1 text-xs font-bold ${classe}`}>{status}</span>;
+  const classe =
+    status === "Pago" || status === "Ativo"
+      ? "bg-teal-100 text-teal-800"
+      : status === "Atrasado"
+        ? "bg-red-100 text-red-800"
+        : status === "Cancelado"
+          ? "bg-slate-200 text-slate-700"
+          : "bg-amber-100 text-amber-800";
+  return <span className={`inline-flex shrink-0 rounded-full px-2.5 py-1 text-[0.68rem] font-extrabold uppercase ${classe}`}>{status}</span>;
+}
+
+function corFaixaClasse(faixa: CorFaixa | null) {
+  const classes: Record<CorFaixa, string> = {
+    Branca: "border-slate-300 bg-white",
+    Cinza: "border-slate-400 bg-slate-300",
+    Amarela: "border-yellow-500 bg-yellow-300",
+    Laranja: "border-orange-500 bg-orange-400",
+    Verde: "border-emerald-600 bg-emerald-500",
+    Azul: "border-blue-600 bg-blue-500",
+    Roxa: "border-purple-700 bg-purple-600",
+    Marrom: "border-amber-900 bg-amber-800",
+    Preta: "border-slate-950 bg-slate-900"
+  };
+
+  return classes[faixa ?? "Branca"];
 }
 
 function SelecaoAluno({ valor, alterar, alunos }: { valor: string; alterar: (valor: string) => void; alunos: Aluno[] }) {
