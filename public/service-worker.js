@@ -1,5 +1,5 @@
-const nomeCache = "ctdemar-financeiro-v1";
-const arquivosEssenciais = ["/", "/manifest.webmanifest", "/icone.svg"];
+const nomeCache = "ctdemar-financeiro-v2";
+const arquivosEssenciais = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/favicon-32.png"];
 
 self.addEventListener("install", (evento) => {
   evento.waitUntil(
