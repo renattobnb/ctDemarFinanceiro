@@ -5,9 +5,14 @@ export const metadata: Metadata = {
   title: "CTDemar Financeiro",
   description: "Controle financeiro de alunos, turmas, mensalidades e inadimplentes.",
   manifest: "/manifest.webmanifest",
+  icons: {
+    icon: "/icone.svg",
+    apple: "/icone.svg"
+  },
   appleWebApp: {
     capable: true,
-    title: "CTDemar"
+    title: "CTDemar",
+    statusBarStyle: "default"
   }
 };
 

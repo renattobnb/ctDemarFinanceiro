@@ -30,6 +30,7 @@ import {
   Users
 } from "lucide-react";
 import { supabase, supabaseConfigurado } from "@/lib/supabase";
+import { InstallAppBanner, InstallAppHelpButton, InstallAppModal, useInstallPrompt } from "./install-app";
 import {
   anoAtual,
   dataAtualIso,
@@ -174,6 +175,7 @@ function mesesReceitaUltimosSeisMeses() {
 }
 
 export default function PaginaInicial() {
+  const controleInstalacao = useInstallPrompt();
   const [abaAtiva, definirAbaAtiva] = useState<Aba>("dashboard");
   const [menuTurmasAberto, definirMenuTurmasAberto] = useState(false);
   const [menuFinanceiroAberto, definirMenuFinanceiroAberto] = useState(false);
@@ -1182,6 +1184,16 @@ export default function PaginaInicial() {
                 <p className="leading-relaxed">{resumoContextualDashboard}</p>
               </div>
 
+              <InstallAppBanner controle={controleInstalacao} />
+              {controleInstalacao.mensagem && (
+                <p className="rounded-lg border border-teal-100 bg-teal-50 px-3 py-2 text-xs font-bold text-teal-900 sm:hidden">
+                  {controleInstalacao.mensagem}
+                </p>
+              )}
+              <div className="sm:hidden">
+                <InstallAppHelpButton controle={controleInstalacao} />
+              </div>
+
               <div className="grid grid-cols-2 gap-2 sm:hidden">
                 <CartaoResumo rotulo="Recebido" valor={formatarMoeda(resumo.total_recebido)} tom="verde" Icone={CheckCircle2} />
                 <CartaoResumo rotulo="Receita prevista" valor={formatarMoeda(resumo.receita_prevista_mes)} tom="azul" Icone={Banknote} />
@@ -1990,6 +2002,7 @@ export default function PaginaInicial() {
         </div>
         </>
       )}
+      <InstallAppModal controle={controleInstalacao} />
     </main>
   );
 }
