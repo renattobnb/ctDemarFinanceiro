@@ -42,6 +42,10 @@ export type Financeiro = {
   mes_referencia: number;
   ano_referencia: number;
   valor: number;
+  valor_original?: number;
+  valor_desconto?: number;
+  valor_pago?: number;
+  pagamento_antecipado_id?: string | null;
   data_vencimento: string;
   data_pagamento: string | null;
   status: StatusFinanceiro;
@@ -49,6 +53,25 @@ export type Financeiro = {
   observacoes: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type PagamentoAntecipado = {
+  id: string;
+  aluno_id: string;
+  turma_id: string;
+  quantidade_meses: number;
+  competencia_inicial: string;
+  competencia_final: string;
+  valor_original: number;
+  tipo_desconto: "Sem desconto" | "Percentual" | "Valor fixo";
+  valor_desconto: number;
+  valor_total_pago: number;
+  forma_pagamento: string;
+  data_pagamento: string;
+  observacao: string | null;
+  status: "Confirmado" | "Cancelado" | "Estornado";
+  motivo_cancelamento?: string | null;
+  criado_em: string;
 };
 
 export type MensalidadeComDetalhes = Financeiro & {

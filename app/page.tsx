@@ -6,6 +6,7 @@ import {
   Banknote,
   CalendarPlus,
   CheckCircle2,
+  ClipboardList,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -30,6 +31,7 @@ import {
   Users
 } from "lucide-react";
 import { supabase, supabaseConfigurado } from "@/lib/supabase";
+import { competenciasAntecipadas, type TipoDescontoAntecipado } from "@/lib/pagamento-antecipado";
 import { InstallAppBanner, InstallAppHelpButton, InstallAppModal, useInstallPrompt } from "./install-app";
 import {
   anoAtual,
@@ -40,7 +42,7 @@ import {
   meses,
   numeroWhatsapp
 } from "@/lib/formatadores";
-import type { Aluno, AlunoTurma, CorFaixa, MensalidadeComDetalhes, ResumoFinanceiro, Turma } from "@/lib/tipos";
+import type { Aluno, AlunoTurma, CorFaixa, MensalidadeComDetalhes, PagamentoAntecipado, ResumoFinanceiro, Turma } from "@/lib/tipos";
 
 type Aba = "dashboard" | "alunos" | "turmas" | "vinculos" | "mensalidades" | "pagas" | "canceladas" | "inadimplentes";
 
@@ -118,6 +120,12 @@ const turmaInicial = {
   valor_mensalidade: "",
   capacidade_alunos: String(capacidadePadraoTurma),
   status: "Ativa"
+};
+
+const pagamentoAntecipadoInicial = {
+  alunoId: "", turmaId: "", mes: mesAtual(), ano: anoAtual(), quantidade: 3,
+  tipoDesconto: "Sem desconto" as TipoDescontoAntecipado, desconto: "", formaPagamento: "Dinheiro",
+  dataPagamento: dataAtualIso(), observacao: "", reativarCanceladas: false
 };
 
 function dataVencimentoPadrao(mes: number, ano: number) {
@@ -211,6 +219,10 @@ export default function PaginaInicial() {
   const [mesReferencia, definirMesReferencia] = useState(mesAtual());
   const [anoReferencia, definirAnoReferencia] = useState(anoAtual());
   const [dataVencimento, definirDataVencimento] = useState(dataVencimentoPadrao(mesAtual(), anoAtual()));
+  const [modalAntecipadoAberto, definirModalAntecipadoAberto] = useState(false);
+  const [formAntecipado, definirFormAntecipado] = useState(pagamentoAntecipadoInicial);
+  const [detalheAntecipado, definirDetalheAntecipado] = useState<PagamentoAntecipado | null>(null);
+  const [requisicaoAntecipada, definirRequisicaoAntecipada] = useState("");
 
   async function carregarDados() {
     if (!supabaseConfigurado) return;
@@ -777,6 +789,64 @@ export default function PaginaInicial() {
     carregarDados();
   }
 
+  const turmaAntecipada = turmas.find((turma) => turma.id === formAntecipado.turmaId);
+  const competenciasPrevia = useMemo(() => competenciasAntecipadas(
+    formAntecipado.mes, formAntecipado.ano, formAntecipado.quantidade,
+    Number(turmaAntecipada?.valor_mensalidade ?? 0), formAntecipado.tipoDesconto, Number(formAntecipado.desconto || 0)
+  ), [formAntecipado.ano, formAntecipado.desconto, formAntecipado.mes, formAntecipado.quantidade, formAntecipado.tipoDesconto, turmaAntecipada?.valor_mensalidade]);
+  const conflitosAntecipados = useMemo(() => competenciasPrevia.map((competencia) => {
+    const existente = mensalidades.find((item) => item.aluno_id === formAntecipado.alunoId && item.turma_id === formAntecipado.turmaId && item.mes_referencia === competencia.mes && item.ano_referencia === competencia.ano);
+    return { ...competencia, situacao: existente?.status === "Pago" ? "Bloqueada" : existente?.status === "Cancelado" ? "Cancelada" : existente ? "Atualizada" : "Criada" };
+  }), [competenciasPrevia, formAntecipado.alunoId, formAntecipado.turmaId, mensalidades]);
+
+  function abrirPagamentoAntecipado() {
+    definirFormAntecipado({ ...pagamentoAntecipadoInicial, alunoId: alunoSelecionado, turmaId: turmaSelecionada });
+    definirRequisicaoAntecipada(crypto.randomUUID());
+    definirModalAntecipadoAberto(true);
+    definirMensagem("");
+  }
+
+  async function confirmarPagamentoAntecipado() {
+    if (!formAntecipado.alunoId || !formAntecipado.turmaId || !turmaAntecipada) return definirMensagem("Selecione o aluno e a turma do pagamento antecipado.");
+    if (!Number.isInteger(formAntecipado.quantidade) || formAntecipado.quantidade < 1 || formAntecipado.quantidade > 24) return definirMensagem("A quantidade deve ser um número inteiro entre 1 e 24.");
+    const bloqueadas = conflitosAntecipados.filter((item) => item.situacao === "Bloqueada");
+    const canceladas = conflitosAntecipados.filter((item) => item.situacao === "Cancelada");
+    if (bloqueadas.length) return definirMensagem(`A mensalidade de ${bloqueadas.map((item) => item.rotulo).join(", ")} já está paga.`);
+    if (canceladas.length && !formAntecipado.reativarCanceladas) return definirMensagem("Há mensalidade cancelada. Marque a opção para reativá-la ou ajuste o período.");
+    definirSalvando(true);
+    const { data, error } = await supabase.rpc("registrar_pagamento_antecipado", {
+      p_aluno_id: formAntecipado.alunoId, p_turma_id: formAntecipado.turmaId, p_mes_inicial: formAntecipado.mes, p_ano_inicial: formAntecipado.ano,
+      p_quantidade_meses: formAntecipado.quantidade, p_tipo_desconto: formAntecipado.tipoDesconto, p_valor_desconto: Number(formAntecipado.desconto || 0),
+      p_forma_pagamento: formAntecipado.formaPagamento, p_data_pagamento: formAntecipado.dataPagamento, p_observacao: formAntecipado.observacao,
+      p_reativar_canceladas: formAntecipado.reativarCanceladas, p_requisicao_id: requisicaoAntecipada
+    });
+    definirSalvando(false);
+    if (error) return definirMensagem(`Não foi possível registrar o pagamento antecipado: ${error.message}`);
+    const resultado = data as { processadas: number; total: number; repetido: boolean };
+    definirModalAntecipadoAberto(false);
+    definirMensagem(resultado.repetido ? "Este pagamento antecipado já havia sido registrado." : `Pagamento antecipado registrado com sucesso. Foram processadas ${resultado.processadas} mensalidades, de ${competenciasPrevia[0].rotulo} a ${competenciasPrevia.at(-1)?.rotulo}, totalizando ${formatarMoeda(Number(resultado.total))}.`);
+    carregarDados();
+  }
+
+  async function abrirDetalheAntecipado(id: string) {
+    const { data, error } = await supabase.from("pagamentos_antecipados").select("*").eq("id", id).single();
+    if (error) return definirMensagem(`Não foi possível carregar o lote: ${error.message}`);
+    definirDetalheAntecipado(data as PagamentoAntecipado);
+  }
+
+  async function cancelarPagamentoAntecipado() {
+    if (!detalheAntecipado) return;
+    const motivo = window.prompt("Informe o motivo do cancelamento ou estorno:");
+    if (!motivo) return;
+    definirSalvando(true);
+    const { error } = await supabase.rpc("cancelar_pagamento_antecipado", { p_lote_id: detalheAntecipado.id, p_motivo: motivo });
+    definirSalvando(false);
+    if (error) return definirMensagem(`Não foi possível cancelar o lote: ${error.message}`);
+    definirDetalheAntecipado(null);
+    definirMensagem("Pagamento antecipado cancelado. As mensalidades do lote foram mantidas no histórico como canceladas.");
+    carregarDados();
+  }
+
   async function lancarMensalidade(evento: React.FormEvent<HTMLFormElement>) {
     evento.preventDefault();
     definirSalvando(true);
@@ -787,6 +857,8 @@ export default function PaginaInicial() {
       mes_referencia: mesReferencia,
       ano_referencia: anoReferencia,
       valor: Number(turmaDoAlunoSelecionado?.valor_mensalidade ?? mensalidadeEmEdicao?.valor ?? 0),
+      valor_original: Number(turmaDoAlunoSelecionado?.valor_mensalidade ?? mensalidadeEmEdicao?.valor_original ?? mensalidadeEmEdicao?.valor ?? 0),
+      valor_desconto: 0,
       data_vencimento: dataVencimento
     };
 
@@ -868,6 +940,8 @@ export default function PaginaInicial() {
       ano_referencia: ano,
       valor: Number(turmaDoAlunoSelecionado.valor_mensalidade),
       data_vencimento: montarDataVencimento(mes, ano, diaVencimento),
+      valor_original: Number(turmaDoAlunoSelecionado.valor_mensalidade),
+      valor_desconto: 0,
       status: "Pendente"
     });
     definirSalvando(false);
@@ -914,6 +988,8 @@ export default function PaginaInicial() {
           mes_referencia: mes,
           ano_referencia: ano,
           valor: Number(turma.valor_mensalidade),
+          valor_original: Number(turma.valor_mensalidade),
+          valor_desconto: 0,
           data_vencimento: montarDataVencimento(mes, ano, diaVencimento),
           status: "Pendente"
         };
@@ -924,6 +1000,8 @@ export default function PaginaInicial() {
         mes_referencia: number;
         ano_referencia: number;
         valor: number;
+        valor_original: number;
+        valor_desconto: number;
         data_vencimento: string;
         status: string;
       } => Boolean(item));
@@ -959,7 +1037,10 @@ export default function PaginaInicial() {
       .update({
         status: "Pago",
         data_pagamento: dataAtualIso(),
-        forma_pagamento: "Nao informado"
+        forma_pagamento: "Nao informado",
+        valor_pago: mensalidade.valor,
+        valor_original: mensalidade.valor_original ?? mensalidade.valor,
+        valor_desconto: mensalidade.valor_desconto ?? 0
       })
       .eq("id", mensalidade.id);
 
@@ -970,6 +1051,10 @@ export default function PaginaInicial() {
   }
 
   async function cancelarMensalidade(mensalidade: MensalidadeComDetalhes) {
+    if (mensalidade.pagamento_antecipado_id) {
+      definirMensagem("Esta mensalidade pertence a um pagamento antecipado. Abra os detalhes do lote para realizar o cancelamento controlado.");
+      return;
+    }
     const confirmou = window.confirm(
       `Deseja cancelar a mensalidade de ${mensalidade.alunos?.nome_completo ?? "aluno"} referente a ${meses[mensalidade.mes_referencia - 1]}/${mensalidade.ano_referencia}?`
     );
@@ -1306,12 +1391,12 @@ export default function PaginaInicial() {
                 )}
 
                 {aniversariantesDoMes.length > 0 && (
-                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                  <div className="grid min-w-0 gap-2 md:grid-cols-2 xl:grid-cols-3">
                     {aniversariantesDoMes.map((aluno) => (
-                      <article key={aluno.id} className="flex items-center justify-between gap-3 rounded-lg border border-black/10 bg-slate-50 p-3">
-                        <div className="min-w-0">
+                      <article key={aluno.id} className="flex min-w-0 w-full items-center justify-between gap-3 rounded-lg border border-black/10 bg-slate-50 p-3">
+                        <div className="min-w-0 flex-1">
                           <h3 className="truncate text-sm font-extrabold text-slate-950">{aluno.nome_completo}</h3>
-                          {aluno.telefone && <p className="mt-0.5 text-xs font-medium text-slate-500">{aluno.telefone}</p>}
+                          {aluno.telefone && <p className="truncate mt-0.5 text-xs font-medium text-slate-500">{aluno.telefone}</p>}
                         </div>
                         <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-teal-50 px-2.5 py-1.5 text-xs font-extrabold text-destaque">
                           <Gift className="h-3.5 w-3.5" />
@@ -1688,6 +1773,15 @@ export default function PaginaInicial() {
                     <div className="grid gap-2">
                       <button
                         type="button"
+                        onClick={abrirPagamentoAntecipado}
+                        disabled={salvando}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-destaque px-3 py-2 text-sm font-semibold text-white"
+                      >
+                        <ClipboardList className="h-4 w-4" />
+                        Pagamento antecipado
+                      </button>
+                      <button
+                        type="button"
                         onClick={lancarMensalidadeProximoMesAluno}
                         disabled={salvando}
                         className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-destaque bg-white px-3 py-2 text-sm font-semibold text-destaque"
@@ -1744,6 +1838,11 @@ export default function PaginaInicial() {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-bold">{formatarMoeda(Number(mensalidade.valor))}</span>
                         <Etiqueta status={mensalidade.status} />
+                        {mensalidade.pagamento_antecipado_id && (
+                          <button type="button" onClick={() => abrirDetalheAntecipado(mensalidade.pagamento_antecipado_id!)} className="rounded-full bg-sky-100 px-2.5 py-1 text-[0.68rem] font-extrabold uppercase text-sky-800">
+                            Pagamento antecipado
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => iniciarEdicaoMensalidade(mensalidade)}
@@ -1816,6 +1915,7 @@ export default function PaginaInicial() {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-bold">{formatarMoeda(Number(mensalidade.valor))}</span>
                         <Etiqueta status={mensalidade.status} />
+                        {mensalidade.pagamento_antecipado_id && <button type="button" onClick={() => abrirDetalheAntecipado(mensalidade.pagamento_antecipado_id!)} className="rounded-full bg-sky-100 px-2.5 py-1 text-[0.68rem] font-extrabold uppercase text-sky-800">Pagamento antecipado</button>}
                         <a
                           href={telefone ? `https://wa.me/55${telefone}?text=${texto}` : "#"}
                           target="_blank"
@@ -2001,6 +2101,37 @@ export default function PaginaInicial() {
           </button>
         </div>
         </>
+      )}
+      {modalAntecipadoAberto && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/50 p-0 sm:p-6" role="dialog" aria-modal="true" aria-label="Pagamento antecipado">
+          <div className="min-h-full bg-white p-4 sm:mx-auto sm:min-h-0 sm:max-w-5xl sm:rounded-2xl sm:shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div><h2 className="text-xl font-extrabold text-slate-950">Pagamento antecipado</h2><p className="text-sm text-slate-600">As competências serão criadas ou atualizadas individualmente e vinculadas ao mesmo lote.</p></div>
+              <button type="button" onClick={() => definirModalAntecipadoAberto(false)} className="rounded-md p-2 text-slate-600 hover:bg-slate-100" aria-label="Fechar"><XCircle className="h-5 w-5" /></button>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              <SelecaoAluno valor={formAntecipado.alunoId} alterar={(alunoId) => definirFormAntecipado((atual) => ({ ...atual, alunoId }))} alunos={alunos.filter((aluno) => aluno.status === "Ativo")} />
+              <SelecaoTurma valor={formAntecipado.turmaId} alterar={(turmaId) => definirFormAntecipado((atual) => ({ ...atual, turmaId }))} turmas={turmas.filter((turma) => turma.status === "Ativa")} />
+              <Campo rotulo="Mês inicial"><select className="campo" value={formAntecipado.mes} onChange={(e) => definirFormAntecipado((atual) => ({ ...atual, mes: Number(e.target.value) }))}>{meses.map((mes, indice) => <option key={mes} value={indice + 1}>{mes}</option>)}</select></Campo>
+              <Campo rotulo="Ano inicial"><input className="campo" type="number" value={formAntecipado.ano} onChange={(e) => definirFormAntecipado((atual) => ({ ...atual, ano: Number(e.target.value) }))} /></Campo>
+              <Campo rotulo="Quantidade de meses"><input className="campo" min="1" max="24" step="1" type="number" value={formAntecipado.quantidade} onChange={(e) => definirFormAntecipado((atual) => ({ ...atual, quantidade: Number(e.target.value) }))} /></Campo>
+              <Campo rotulo="Valor mensal"><input className="campo bg-slate-100" readOnly value={formatarMoeda(Number(turmaAntecipada?.valor_mensalidade ?? 0))} /></Campo>
+              <div className="md:col-span-2 lg:col-span-3"><p className="mb-1 text-xs font-bold uppercase text-slate-600">Opções rápidas</p><div className="flex flex-wrap gap-2">{[3,4,6,12].map((quantidade) => <button key={quantidade} type="button" onClick={() => definirFormAntecipado((atual) => ({ ...atual, quantidade }))} className={`rounded-md border px-3 py-2 text-sm font-bold ${formAntecipado.quantidade === quantidade ? "border-destaque bg-teal-50 text-destaque" : "border-slate-200"}`}>{quantidade} meses</button>)}<span className="px-2 py-2 text-sm text-slate-500">Personalizado: de 1 a 24 meses</span></div></div>
+              <Campo rotulo="Desconto"><select className="campo" value={formAntecipado.tipoDesconto} onChange={(e) => definirFormAntecipado((atual) => ({ ...atual, tipoDesconto: e.target.value as TipoDescontoAntecipado, desconto: "" }))}><option>Sem desconto</option><option>Percentual</option><option>Valor fixo</option></select></Campo>
+              {formAntecipado.tipoDesconto !== "Sem desconto" && <Campo rotulo={formAntecipado.tipoDesconto === "Percentual" ? "Percentual" : "Valor fixo (R$)"}><input className="campo" min="0" type="number" step="0.01" value={formAntecipado.desconto} onChange={(e) => definirFormAntecipado((atual) => ({ ...atual, desconto: e.target.value }))} /></Campo>}
+              <Campo rotulo="Forma de pagamento"><select className="campo" value={formAntecipado.formaPagamento} onChange={(e) => definirFormAntecipado((atual) => ({ ...atual, formaPagamento: e.target.value }))}><option>Dinheiro</option><option>PIX</option><option>Cartão</option><option>Transferência</option><option>Outro</option></select></Campo>
+              <Campo rotulo="Data do pagamento"><input className="campo" type="date" value={formAntecipado.dataPagamento} onChange={(e) => definirFormAntecipado((atual) => ({ ...atual, dataPagamento: e.target.value }))} /></Campo>
+              <div className="md:col-span-2 lg:col-span-3"><Campo rotulo="Observação"><textarea className="campo min-h-20" value={formAntecipado.observacao} onChange={(e) => definirFormAntecipado((atual) => ({ ...atual, observacao: e.target.value }))} /></Campo></div>
+            </div>
+            {conflitosAntecipados.some((item) => item.situacao === "Cancelada") && <label className="mt-3 flex gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><input type="checkbox" checked={formAntecipado.reativarCanceladas} onChange={(e) => definirFormAntecipado((atual) => ({ ...atual, reativarCanceladas: e.target.checked }))} /> Reativar mensalidades canceladas deste lote</label>}
+            <div className="mt-5 rounded-xl border border-slate-200"><div className="border-b p-3"><h3 className="font-extrabold">Prévia das competências</h3></div><div className="hidden overflow-x-auto sm:block"><table className="w-full text-sm"><thead className="bg-slate-50 text-left"><tr><th className="p-3">Competência</th><th>Vencimento</th><th>Original</th><th>Desconto</th><th>Final</th><th>Situação</th></tr></thead><tbody>{conflitosAntecipados.map((item) => <tr key={item.rotulo} className="border-t"><td className="p-3 font-semibold">{item.rotulo}</td><td>{formatarData(item.vencimento)}</td><td>{formatarMoeda(item.valorOriginal)}</td><td>{formatarMoeda(item.desconto)}</td><td>{formatarMoeda(item.valorFinal)}</td><td><Etiqueta status={item.situacao} /></td></tr>)}</tbody></table></div><div className="space-y-2 p-3 sm:hidden">{conflitosAntecipados.map((item) => <div key={item.rotulo} className="rounded-lg border p-3 text-sm"><div className="flex justify-between"><strong>{item.rotulo}</strong><Etiqueta status={item.situacao} /></div><p>Vence em {formatarData(item.vencimento)}</p><p>{formatarMoeda(item.valorOriginal)} − {formatarMoeda(item.desconto)} = <strong>{formatarMoeda(item.valorFinal)}</strong></p></div>)}</div></div>
+            <div className="mt-4 grid gap-2 rounded-xl bg-teal-50 p-4 text-sm sm:grid-cols-3"><p><strong>{competenciasPrevia.length}</strong> mensalidades</p><p>Período: <strong>{competenciasPrevia[0]?.rotulo} a {competenciasPrevia.at(-1)?.rotulo}</strong></p><p>Subtotal: <strong>{formatarMoeda(competenciasPrevia.reduce((s, i) => s + i.valorOriginal, 0))}</strong></p><p>Desconto: <strong>{formatarMoeda(competenciasPrevia.reduce((s, i) => s + i.desconto, 0))}</strong></p><p>Total recebido: <strong>{formatarMoeda(competenciasPrevia.reduce((s, i) => s + i.valorFinal, 0))}</strong></p><p>Forma: <strong>{formAntecipado.formaPagamento}</strong></p></div>
+            <div className="sticky bottom-0 mt-4 flex flex-col-reverse gap-2 border-t bg-white pt-3 sm:flex-row sm:justify-end"><button type="button" onClick={() => definirModalAntecipadoAberto(false)} className="rounded-md border px-4 py-3 font-bold">Cancelar</button><button type="button" disabled={salvando || conflitosAntecipados.some((item) => item.situacao === "Bloqueada")} onClick={confirmarPagamentoAntecipado} className="rounded-md bg-destaque px-4 py-3 font-bold text-white disabled:opacity-50">{salvando ? "Salvando..." : "Confirmar pagamento antecipado"}</button></div>
+          </div>
+        </div>
+      )}
+      {detalheAntecipado && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4" role="dialog" aria-modal="true"><div className="w-full max-w-lg rounded-xl bg-white p-5 shadow-2xl"><div className="flex justify-between gap-3"><h2 className="text-lg font-extrabold">Detalhes do pagamento antecipado</h2><button onClick={() => definirDetalheAntecipado(null)}><XCircle /></button></div><dl className="mt-4 grid grid-cols-2 gap-3 text-sm"><div><dt className="text-slate-500">Lote</dt><dd className="break-all font-semibold">{detalheAntecipado.id}</dd></div><div><dt className="text-slate-500">Situação</dt><dd><Etiqueta status={detalheAntecipado.status} /></dd></div><div><dt className="text-slate-500">Período</dt><dd>{formatarData(detalheAntecipado.competencia_inicial)} a {formatarData(detalheAntecipado.competencia_final)}</dd></div><div><dt className="text-slate-500">Recebido em</dt><dd>{formatarData(detalheAntecipado.data_pagamento)} · {detalheAntecipado.forma_pagamento}</dd></div><div><dt className="text-slate-500">Original / desconto</dt><dd>{formatarMoeda(Number(detalheAntecipado.valor_original))} / {formatarMoeda(Number(detalheAntecipado.valor_desconto))}</dd></div><div><dt className="text-slate-500">Total</dt><dd className="font-bold">{formatarMoeda(Number(detalheAntecipado.valor_total_pago))}</dd></div></dl><div className="mt-3 rounded-md bg-slate-50 p-3 text-sm"><strong>Mensalidades vinculadas</strong><ul className="mt-1 space-y-1">{mensalidades.filter((item) => item.pagamento_antecipado_id === detalheAntecipado.id).map((item) => <li key={item.id}>{meses[item.mes_referencia - 1]}/{item.ano_referencia} — {formatarMoeda(Number(item.valor_pago ?? item.valor))}</li>)}</ul></div><p className="mt-3 rounded-md bg-slate-50 p-3 text-sm">{detalheAntecipado.observacao || "Sem observação."}</p>{detalheAntecipado.status === "Confirmado" && <button type="button" disabled={salvando} onClick={cancelarPagamentoAntecipado} className="mt-4 w-full rounded-md border border-red-200 px-4 py-3 font-bold text-red-700">Cancelar lote e registrar estorno interno</button>}</div></div>
       )}
       <InstallAppModal controle={controleInstalacao} />
     </main>
